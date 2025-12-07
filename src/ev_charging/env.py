@@ -253,6 +253,8 @@ class EvChargingEnv(gym.Env):
             max_car_capacity: int = 500,
             max_car_init_soc: float = 0.85,
             station_full_penalty: float = 10.0,
+            min_steps_between_arrivals: int = 1,
+            max_steps_between_arrivals: int = 5,
             max_steps: int = 1000,
         ):
         super().__init__()
@@ -262,6 +264,9 @@ class EvChargingEnv(gym.Env):
         self.max_car_capacity = max_car_capacity
         self.max_car_init_soc = max_car_init_soc
         self.system_full_penalty = station_full_penalty
+        self.min_steps_between_arrivals = min_steps_between_arrivals
+        self.max_steps_between_arrivals = max_steps_between_arrivals
+        self.steps_until_next_arrival = 0
         self.max_steps = max_steps
         self.step_count = 0
         self.stations = []
@@ -333,6 +338,14 @@ class EvChargingEnv(gym.Env):
         
         self.car_to_route = self.generate_car_to_route()
 
+        self.steps_until_next_arrival = torch.randint(
+            low=self.min_steps_between_arrivals,
+            high=self.max_steps_between_arrivals+1,
+            size=(1,),
+            generator=self.generator,
+            device=self._device
+        )
+
         observation = self._get_obs()
         info = self._get_info()
 
@@ -377,8 +390,17 @@ class EvChargingEnv(gym.Env):
         return car
 
     def _get_obs(self):
+        if self.car_to_route is not None:
+            car_to_route_state = self.car_to_route.get_state()
+        else:
+            car_to_route_state = torch.full(
+                (NB_STATE_PER_CAR,),
+                fill_value=FILLER_VALUE,
+                dtype=torch.float32,
+                device=self._device
+            )
         state = torch.concat(
-            [self.car_to_route.get_state()] + [station.get_state() for station in self.stations]
+            [self.steps_until_next_arrival] + [car_to_route_state] + [station.get_state() for station in self.stations]
         )
 
         return {
@@ -389,17 +411,28 @@ class EvChargingEnv(gym.Env):
         return {}
     
     def step(self, action: torch.Tensor):
-
-        selected_station = self.stations[action.item()]
-
-        actual_travel_time = selected_station.sample_travel_time()
-
-        station_full_penalty = selected_station.add_traveling_car(self.car_to_route, actual_travel_time)
+        if self.car_to_route is not None:
+            selected_station = self.stations[action.item()]
+            actual_travel_time = selected_station.sample_travel_time()
+            station_full_penalty = selected_station.add_traveling_car(self.car_to_route, actual_travel_time)
+        else:
+            station_full_penalty = 0.0
 
         for station in self.stations:
             station.step()
         
-        self.car_to_route = self.generate_car_to_route()
+        self.steps_until_next_arrival -= 1
+        if self.steps_until_next_arrival <= 0:
+            self.car_to_route = self.generate_car_to_route()
+            self.steps_until_next_arrival = torch.randint(
+                low=self.min_steps_between_arrivals,
+                high=self.max_steps_between_arrivals+1,
+                size=(1,),
+                generator=self.generator,
+                device=self._device
+            )
+        else:
+            self.car_to_route = None
 
         self.step_count += 1
 

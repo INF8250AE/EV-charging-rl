@@ -10,8 +10,7 @@ uv sync
 ```
 
 # Explore Env
-![Visualization of the EV Charging Environment Rollout](videos/ev_rollout.gif)
-
+<video src="videos/ev_rollout.mp4" width="640" height="480" controls autoplay></video>
 ```bash
 uv run scripts/explore_env.py
 ```

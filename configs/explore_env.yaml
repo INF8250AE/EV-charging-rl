@@ -1,0 +1,28 @@
+defaults:
+  - _self_
+hydra:
+  run:
+    dir: outputs/${now:%Y-%m-%d_%H-%M-%S}/${experiment.type}_${env.name}
+experiment:
+  type: "explore_env"
+env:
+  name: "EvChargingEnv"
+  env_config:
+    device: "cuda:0"
+    seed: 42
+    nb_stations: 5
+    min_charge_speed: 1
+    max_charge_speed: 10
+    min_charge_speed_sharpness: 1
+    max_charge_speed_sharpness: 5
+    min_chargers_per_station: 1
+    max_chargers_per_station: 5
+    min_travel_time_to_station: 20
+    max_travel_time_to_station: 100
+    max_nb_cars_traveling_to_station: 10
+    max_nb_cars_waiting_at_station: 10
+    min_car_capacity: 50
+    max_car_capacity: 500
+    max_car_init_soc: 0.85
+    station_full_penalty: 10.0
+    max_steps: 1000

@@ -8,3 +8,8 @@ Assuming you've installed [`uv`](https://docs.astral.sh/uv/getting-started/insta
 ```bash
 uv sync
 ```
+
+# Explore Env
+```bash
+uv run scripts/explore_env.py
+```

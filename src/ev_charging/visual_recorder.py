@@ -1,10 +1,13 @@
 import cv2
 import numpy as np
 import torch
+import os
+import shutil
+import subprocess
+import math
 import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 from matplotlib.backends.backend_agg import FigureCanvasAgg
-import math
 
 class EvVizRecorder:
     def __init__(self, env, output_path="videos/ev_rollout.mp4", fps=2):
@@ -306,11 +309,60 @@ class EvVizRecorder:
             return
 
         print(f"Saving video to {self.output_path}...")
+
         fourcc = cv2.VideoWriter_fourcc(*'mp4v')
         out = cv2.VideoWriter(self.output_path, fourcc, self.fps, (self.width, self.height))
+
+        if not out.isOpened():
+            print("Error: Could not open video writer. Trying default backend...")
+            self.output_path = self.output_path.replace(".mp4", ".avi")
+            fourcc = cv2.VideoWriter_fourcc(*'MJPG')
+            out = cv2.VideoWriter(self.output_path, fourcc, self.fps, (self.width, self.height))
 
         for frame in self.frames:
             out.write(frame)
 
         out.release()
-        print("Video saved successfully.")
+        
+        if not os.path.exists(self.output_path):
+            print("Error: Video file was not created.")
+            return
+
+        print(f"Video saved successfully to {self.output_path} (Codec: mp4v)")
+
+        # We check if ffmpeg is available in the system environment
+        if shutil.which("ffmpeg"):
+            print("FFmpeg detected. Converting to web-compatible format...")
+            
+            temp_name = self.output_path.replace(".mp4", "_temp.mp4")
+            
+            try:
+                # Rename original to temp
+                os.rename(self.output_path, temp_name)
+                
+                # Run ffmpeg via Python subprocess (cleaner than os.system)
+                # -y: overwrite
+                # -vcodec libx264: Force H.264
+                # -pix_fmt yuv420p: Force pixel format for web
+                cmd = [
+                    "ffmpeg", "-y", 
+                    "-i", temp_name,
+                    "-vcodec", "libx264",
+                    "-pix_fmt", "yuv420p",
+                    "-loglevel", "error", # Quiet mode
+                    self.output_path
+                ]
+                
+                subprocess.run(cmd, check=True)
+                
+                os.remove(temp_name)
+                print("Conversion complete: Video is now Web compatible.")
+                
+            except Exception as e:
+                print(f"Conversion failed: {e}")
+                if os.path.exists(temp_name):
+                    os.rename(temp_name, self.output_path)
+                print("Kept original video (Playable in VLC/Local Player).")
+        else:
+            print("Warning: FFmpeg not found. Video saved but may not play in Browser.")
+            print("To fix compatibility: 'sudo apt install ffmpeg' or use the 'moviepy' library.")

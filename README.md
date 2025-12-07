@@ -10,6 +10,8 @@ uv sync
 ```
 
 # Explore Env
+![Visualization of the EV Charging Environment Rollout](videos/ev_rollout.gif)
+
 ```bash
 uv run scripts/explore_env.py
 ```

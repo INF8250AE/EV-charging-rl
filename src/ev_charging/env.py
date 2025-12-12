@@ -1,5 +1,7 @@
 import torch
 import torch.distributions as dist
+import torch.nn as nn
+import torch.optim as optim
 import numpy as np
 import gymnasium as gym
 from gymnasium import spaces

@@ -28,8 +28,8 @@ env:
   max_charge_speed_sharpness: 3
   min_chargers_per_station: 8
   max_chargers_per_station: 8
-  min_travel_time_to_station: 6
-  max_travel_time_to_station: 7
+  min_travel_time_to_station: 1
+  max_travel_time_to_station: 3
   max_nb_cars_traveling_to_station: 5
   max_nb_cars_waiting_at_station: 3
   min_car_capacity: 100

@@ -1,0 +1,51 @@
+import hydra
+import sys
+import torch
+from tqdm import tqdm
+from omegaconf import DictConfig
+from loguru import logger as console_logger
+from ev_charging.env import EvChargingEnv
+from ev_charging.visual_recorder import EvVizRecorder
+
+
+@hydra.main(version_base=None, config_path="../configs/", config_name="test_agent")
+def main(cfg: DictConfig):
+
+    console_logger.info(f"Python : {sys.version}")
+    console_logger.info(f"PYTHONPATH : {sys.path}")
+    console_logger.info(f"PyTorch : {torch.__version__}")
+    console_logger.info(f"PyTorch CUDA : {torch.version.cuda}")
+
+    env = EvChargingEnv(**cfg["env"]["env_config"])
+
+    recorder = EvVizRecorder(
+        env, output_path="videos/ev_rollout.mp4", fps=int(cfg["logging"]["fps"])
+    )
+    env_device = cfg["env"]["env_config"]["device"]
+    console_logger.info(f"Env Device: {env_device}")
+
+    agent_weights_paths = list(cfg["agent"]["weights_paths"])
+    method = str(cfg["agent"]["method"])
+
+    for agent_weights_path in list(agent_weights_paths):
+
+        num_episodes = cfg["exploration"]["nb_episodes"]
+        for _ in tqdm(range(num_episodes), desc="Episodes"):
+            obs, info = env.reset()
+            done = False
+            while not done:
+                action = agent.select_action()
+                prev_obs = obs
+                obs, reward, terminated, truncated, info = env.step(action)
+                done = terminated or truncated
+
+        # run evaluation / collect metrics
+
+        # recorder.record_step(prev_obs, obs, action, reward, done)
+
+    # save metrics
+    # recorder.save()
+
+
+if __name__ == "__main__":
+    main()

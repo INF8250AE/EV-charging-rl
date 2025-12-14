@@ -126,13 +126,18 @@ class EvChargingStation:
         return 0.0
 
     def step(self):
-        self.step_charging_cars()
+        nb_completed, total_energy = self.step_charging_cars()
         self.step_waiting_cars()
         self.step_traveling_cars()
+        return nb_completed, total_energy
 
     def step_charging_cars(self):
         idx_to_remove = []
+        total_energy = 0.0
+
         for car_idx, car in enumerate(self.cars_charging):
+            soc_before = float(car.soc.item())
+
             charge_speed = self.charge_speed * (
                 1 - torch.exp(-self.charge_speed_sharpness * car.soc)
             )
@@ -141,8 +146,14 @@ class EvChargingStation:
                 car.soc = car.desired_soc
                 idx_to_remove.append(car_idx)
 
+            soc_after = float(car.soc.item())
+            delta_soc = soc_after - soc_before
+            total_energy += delta_soc * float(car.capacity.item())
+
         for idx in sorted(idx_to_remove, reverse=True):
             self.cars_charging.pop(idx)
+
+        return len(idx_to_remove), total_energy
 
     def step_waiting_cars(self):
         idx_to_remove = []
@@ -261,11 +272,15 @@ class EvChargingEnv(gym.Env):
         min_car_capacity: int = 50,
         max_car_capacity: int = 500,
         max_car_init_soc: float = 0.85,
-        station_full_penalty: float = 10.0,
         min_steps_between_arrivals: int = 1,
         max_steps_between_arrivals: int = 5,
         max_steps: int = 1000,
         advance_until_next_request: bool = False,
+        reward_congestion_weight: float = -1.0,
+        reward_urgency_weight: float = -0.2,
+        reward_energy_weight: float = 0.3,
+        reward_charged_cars_weight: float = 0.5,
+        reward_station_full_penalty: float = 2.0,
     ):
         super().__init__()
         self.generator = torch.Generator(device=device).manual_seed(seed)
@@ -273,13 +288,18 @@ class EvChargingEnv(gym.Env):
         self.min_car_capacity = min_car_capacity
         self.max_car_capacity = max_car_capacity
         self.max_car_init_soc = max_car_init_soc
-        self.system_full_penalty = station_full_penalty
+        self.reward_congestion_weight = reward_congestion_weight
+        self.reward_urgency_weight = reward_urgency_weight
+        self.reward_energy_weight = reward_energy_weight
+        self.reward_charged_cars_weight = reward_charged_cars_weight
+        self.reward_station_full_penalty = reward_station_full_penalty
         self.min_steps_between_arrivals = min_steps_between_arrivals
         self.max_steps_between_arrivals = max_steps_between_arrivals
         self.steps_until_next_arrival = 0
         self.max_steps = max_steps
         self.step_count = 0
         self.advance_until_next_request = advance_until_next_request
+        self.nb_cars_charged_last_time_step = 0
         self.stations = []
         for station_id in range(nb_stations):
             station = EvChargingStation(
@@ -315,7 +335,7 @@ class EvChargingEnv(gym.Env):
                 max_travel_time=max_travel_time_to_station,
                 max_nb_cars_traveling=max_nb_cars_traveling_to_station,
                 max_nb_cars_waiting=max_nb_cars_waiting_at_station,
-                station_full_penalty=station_full_penalty,
+                station_full_penalty=reward_station_full_penalty,
             )
             self.stations.append(station)
 
@@ -446,20 +466,25 @@ class EvChargingEnv(gym.Env):
             station_full_penalty = selected_station.add_traveling_car(
                 self.car_to_route, actual_travel_time
             )
-            self.car_to_route = None
-            self.steps_until_next_arrival = torch.randint(
-                low=self.min_steps_between_arrivals,
-                high=self.max_steps_between_arrivals + 1,
-                size=(1,),
-                generator=self.generator,
-                device=self._device,
-            )
+            if station_full_penalty == 0.0:
+                self.car_to_route = None
+                self.steps_until_next_arrival = torch.randint(
+                    low=self.min_steps_between_arrivals,
+                    high=self.max_steps_between_arrivals + 1,
+                    size=(1,),
+                    generator=self.generator,
+                    device=self._device,
+                )
         else:
             self.steps_until_next_arrival -= 1
             station_full_penalty = 0.0
 
+        nb_completed = 0
+        total_energy = 0.0
         for station in self.stations:
-            station.step()
+            done_i, energy_i = station.step()
+            nb_completed += done_i
+            total_energy += energy_i
 
         if self.steps_until_next_arrival <= 0:
             self.car_to_route = self.generate_car_to_route()
@@ -469,16 +494,19 @@ class EvChargingEnv(gym.Env):
         self.step_count += 1
 
         observation = self._get_obs()
-        reward = self.compute_reward(station_full_penalty)
+        reward = self.compute_reward(station_full_penalty, nb_completed, total_energy)
         terminated = False
         truncated = self.step_count >= self.max_steps
         info = self._get_info()
 
         return observation, reward, terminated, truncated, info
 
-    def compute_reward(self, station_full_penalty: float) -> float:
+    def compute_reward(
+        self, station_full_penalty: float, nb_completed: int, total_energy: float
+    ) -> float:
         nb_cars_routed = 0
         cars_urgency = []
+
         for station in self.stations:
             nb_cars_routed += len(station.cars_traveling)
             nb_cars_routed += len(station.cars_charging)
@@ -490,8 +518,20 @@ class EvChargingEnv(gym.Env):
         if len(cars_urgency) == 0:
             mean_urgency = 0.0
         else:
-            mean_urgency = torch.mean(torch.stack(cars_urgency))
+            mean_urgency = torch.mean(torch.stack(cars_urgency)).item()
 
-        reward = -(nb_cars_routed / self.max_nb_cars_routed + mean_urgency)
+        congestion = nb_cars_routed / self.max_nb_cars_routed
 
-        return reward - station_full_penalty
+        N_ch = sum(st.nb_chargers for st in self.stations)
+        v_max = max(st.charge_speed for st in self.stations)
+        energy_norm = total_energy / max(1.0, N_ch * v_max)
+
+        reward = (
+            self.reward_congestion_weight * congestion
+            + self.reward_urgency_weight * mean_urgency
+            + self.reward_energy_weight * energy_norm
+            + self.reward_charged_cars_weight * nb_completed
+            - station_full_penalty
+        )
+
+        return torch.tensor([reward], dtype=torch.float32, device=self._device)

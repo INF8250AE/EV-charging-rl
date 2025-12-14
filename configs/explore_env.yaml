@@ -29,7 +29,11 @@ env:
   min_car_capacity: 200
   max_car_capacity: 200
   max_car_init_soc: 0.7
-  station_full_penalty: 1.0
+  reward_congestion_weight: -0.5
+  reward_urgency_weight: -0.2
+  reward_energy_weight: 0.3
+  reward_charged_cars_weight: 0.5
+  reward_station_full_penalty: 2.0
   min_steps_between_arrivals: 1
   max_steps_between_arrivals: 1
   max_steps: 1000

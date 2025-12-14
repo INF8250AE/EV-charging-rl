@@ -1,25 +1,21 @@
 defaults:
   - _self_
+
 hydra:
   run:
     dir: outputs/${now:%Y-%m-%d_%H-%M-%S}/${experiment.type}_${env.name}
+
 experiment:
-  type: "test_ddqn"
+  type: "test_all_methods"
+
 logging:
   fps: 4
-testing:
-  nb_episodes: 1
-agent:
-  method: "ddqn"
-  weights_paths:
-    - "trained_agent_weights_0.pt"
-    - "trained_agent_weights_1.pt"
-    - "trained_agent_weights_2.pt"
+
 env:
   name: "EvChargingEnv"
   env_config:
-    device: "cpu"
-    seed: 42
+    device: "cpu"     # can be changed
+    seed: 0           # will be overridden inside loop by eval.seeds
     nb_stations: 5
     min_charge_speed: 1
     max_charge_speed: 5
@@ -38,3 +34,26 @@ env:
     min_steps_between_arrivals: 2
     max_steps_between_arrivals: 5
     max_steps: 120
+
+eval:
+  methods: ["ddqn", "a2c", "ga"]
+  seeds: [0, 1, 2]
+  n_eval_episodes: 20
+
+  # Change these paths to match real file locations !!!!!
+  weights:
+    ddqn:
+      "0": "trained_agent_weights_ddqn_seed0.pt"
+      "1": "trained_agent_weights_ddqn_seed1.pt"
+      "2": "trained_agent_weights_ddqn_seed2.pt"
+    a2c:
+      "0": "trained_agent_weights_a2c_seed0.pt"
+      "1": "trained_agent_weights_a2c_seed1.pt"
+      "2": "trained_agent_weights_a2c_seed2.pt"
+    ga:
+      "0": "best_genome_seed0.npy"
+      "1": "best_genome_seed1.npy"
+      "2": "best_genome_seed2.npy"
+
+output:
+  excel_name: "evaluation_per_seed_results.xlsx"

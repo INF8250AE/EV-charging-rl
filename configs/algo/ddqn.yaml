@@ -8,9 +8,9 @@ agent:
   learning_starts: 2_000
   eps_start: 1.0
   eps_end: 0.005
-  eps_decay_steps: 200_000
+  eps_decay_steps: 100_000
   gamma: 0.99
   learning_rate: 5e-4
   memory_size: 200_000
-  model_hidden_dim: 128
+  model_hidden_dim: 64
   model_nb_layers: 3

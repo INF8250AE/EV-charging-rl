@@ -309,7 +309,7 @@ class EvChargingEnv(gym.Env):
                     device=device,
                 ).item(),
                 travel_distribution=dist.Uniform(
-                    low=min_travel_time_to_station, high=max_travel_time_to_station
+                    low=min_travel_time_to_station, high=max_travel_time_to_station + 1
                 ),
                 min_travel_time=min_travel_time_to_station,
                 max_travel_time=max_travel_time_to_station,

@@ -21,7 +21,7 @@ def eval_policy(env, action_fn, n_eval_episodes: int):
     """Runs deterministic evaluation episodes and returns per-episode returns."""
     returns = []
 
-    for _ in range(n_eval_episodes):
+    for _ in tqdm(range(n_eval_episodes), desc="Eval episodes", leave=False):
         obs, info = env.reset()
         done = False
         ep_ret = 0.0

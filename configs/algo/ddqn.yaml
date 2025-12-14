@@ -1,0 +1,16 @@
+name: "ddqn"
+
+agent:
+  _partial_: true
+  _target_: ev_charging.ddqn.DDQNAgent
+  device: "cpu"
+  target_update_freq: 500
+  learning_starts: 2_000
+  eps_start: 1.0
+  eps_end: 0.005
+  eps_decay_steps: 100_000
+  gamma: 0.99
+  learning_rate: 1e-4
+  memory_size: 100_000
+  model_hidden_dim: 128
+  model_nb_layers: 3

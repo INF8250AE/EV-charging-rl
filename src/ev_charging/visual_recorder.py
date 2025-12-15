@@ -47,15 +47,10 @@ class StepSnap:
     stations: List[StationSnap]
 
 
-# -------------------------
-# Recorder
-# -------------------------
-
-
 class EvVizRecorder:
     """
     Usage:
-        rec = EvVizRecorder(env, output_path="videos/rollout.mp4", fps=2, snapshot_every=10)
+        rec = EvVizRecorder(env, output_path="videos/rollout.mp4", fps=2, snapshot_every=1)
         ...
         rec.record_step(action, reward, done)
         ...
@@ -67,7 +62,7 @@ class EvVizRecorder:
         env,
         output_path: str = "videos/ev_rollout.mp4",
         fps: int = 2,
-        snapshot_every: int = 10,  # store one snapshot every N env steps
+        snapshot_every: int = 1,  # store one snapshot every N env steps
         snapshot_on_request_change: bool = False,  # also store if request appears/disappears
         snapshot_on_done: bool = True,  # always store final step
         convert_with_ffmpeg: bool = True,  # H.264/yuv420p conversion for browser playback
@@ -287,8 +282,6 @@ class EvVizRecorder:
         frame = cv2.cvtColor(frame, cv2.COLOR_RGBA2BGR)
         plt.close(fig)
         return frame
-
-    # -------- drawing helpers (snapshot versions) --------
 
     def _draw_station_from_snap(self, ax, station: StationSnap, x, y, w, h):
         rect = patches.FancyBboxPatch(

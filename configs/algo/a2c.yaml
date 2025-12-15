@@ -2,7 +2,7 @@ name: "a2c"
 
 agent:
   _partial_: true
-  _target_: ev_charging.a2c.DDQNAgent
+  _target_: ev_charging.a2c.ActorCriticAgent
   device: "cpu"
   target_update_freq: 100
   learning_starts: 5_000

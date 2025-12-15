@@ -1,0 +1,6 @@
+name: "random"
+
+agent:
+  _partial_: true
+  _target_: ev_charging.random.RandomAgent
+  device: "cpu"

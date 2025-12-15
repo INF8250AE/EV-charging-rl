@@ -57,3 +57,8 @@ uv run scripts/test_agent.py \
     'eval.weights=["best_genome_1.pt", "best_genome_2.pt", "best_genome_3.pt"]'
 ```
 You need to replace `"best_genome_X.pt"` with the path to the best genome obtained during training (here X represents different training seeds).
+
+## Random Agent
+```bash
+uv run scripts/test_agent.py algo=random
+```

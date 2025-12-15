@@ -85,32 +85,23 @@ def main(cfg: DictConfig):
     output_weights_folder = Path(output_dir) / Path("weights")
     output_weights_folder.mkdir(parents=True, exist_ok=True)
     episode_count = 0
+
     video_start_every = cfg["logging"]["video_start_every"]
     video_frames_per_clip = cfg["logging"]["video_frames_per_clip"]
-    recording = False
-    frames_left = 0
-    clip_start_step = None
+
+    recording = True
+    frames_left = video_frames_per_clip
+    clip_start_step = 1
+
+    clip_end_step = video_frames_per_clip
+    next_milestone_end = video_start_every
 
     for env_step in pbar:
-        if (env_step % video_start_every) == 0 and not recording or env_step == 1:
+        start_step = clip_end_step - video_frames_per_clip + 1
+        if (not recording) and (env_step == start_step) and (start_step >= 1):
             recording = True
             frames_left = video_frames_per_clip
             clip_start_step = env_step
-
-        if recording:
-            recorder.record_step(action=action, reward=reward, done=done)
-            frames_left -= 1
-
-            if frames_left <= 0:
-                seg_path = (
-                    video_output_dir
-                    / f"train_step_{clip_start_step:08d}_{env_step:08d}.mp4"
-                )
-                recorder.save_segment(str(seg_path))
-                metrics_logger.log_video(str(seg_path), step=env_step)
-                recorder.reset_recording()
-                recording = False
-                clip_start_step = None
 
         action = agent.action(state)
         next_state_dict, reward, terminated, truncated, info = env.step(action)
@@ -120,6 +111,29 @@ def main(cfg: DictConfig):
         agent.add_to_replay_buffer(state, action, reward, next_state, done)
 
         state = next_state
+
+        if recording:
+            recorder.record_step(action=action, reward=reward, done=done)
+            frames_left -= 1
+
+            if env_step == clip_end_step or frames_left <= 0:
+                seg_path = (
+                    video_output_dir
+                    / f"train_step_{clip_start_step:08d}_{env_step:08d}.mp4"
+                )
+                recorder.save_segment(str(seg_path))
+                metrics_logger.log_video(str(seg_path), step=env_step)
+                recorder.reset_recording()
+
+                recording = False
+                frames_left = 0
+                clip_start_step = None
+
+                if clip_end_step == video_frames_per_clip:
+                    clip_end_step = next_milestone_end
+                else:
+                    next_milestone_end += video_start_every
+                    clip_end_step = next_milestone_end
 
         train_logs = agent.update(batch_size=train_batch_size, env_step=env_step)
 

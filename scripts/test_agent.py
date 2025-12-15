@@ -10,16 +10,34 @@ from omegaconf import DictConfig
 from loguru import logger as console_logger
 from hydra.utils import instantiate
 from ev_charging.metrics import Metrics
+from ev_charging.visual_recorder import EvVizRecorder
 
 
 def eval_policy(
-    env, agent, n_eval_episodes: int, logging_prefix: str, seed: int
+    env,
+    agent,
+    n_eval_episodes: int,
+    logging_prefix: str,
+    seed: int,
+    num_video_rollouts: int,
+    video_output_dir,
+    video_fps: int,
+    agent_id: int,
 ) -> dict:
     """Runs deterministic evaluation episodes and returns per-episode returns."""
     rollouts_metrics = Metrics()
+
     for episode in tqdm(
         range(1, n_eval_episodes + 1), desc="Test rollouts", leave=False
     ):
+        record_video = episode <= num_video_rollouts
+        video_path = (
+            video_output_dir / f"{logging_prefix}_agent_{agent_id}_ep_{episode}.mp4"
+        )
+        recorder = EvVizRecorder(
+            env, output_path=str(video_path), fps=video_fps, snapshot_every=1
+        )
+
         state_dict, info = env.reset(seed=seed + episode)
         state = state_dict["state"]
         done = False
@@ -29,9 +47,13 @@ def eval_policy(
 
         while not done:
             action = agent.test_action(state).to(env._device)
+
             state_dict, reward, terminated, truncated, info = env.step(action)
             state = state_dict["state"]
             done = terminated or truncated
+
+            if record_video:
+                recorder.record_step(action, reward, done, info)
 
             for k, v in info.items():
                 rollout_metrics.accumulate_metric(
@@ -121,6 +143,9 @@ def eval_policy(
             )
             step += 1
 
+        if record_video:
+            recorder.save()
+
         rollout_metrics = rollout_metrics.compute_aggregated_metrics()
         for k, v in rollout_metrics.items():
             rollouts_metrics.accumulate_metric(
@@ -149,15 +174,22 @@ def main(cfg: DictConfig):
     state_size = env.observation_space["state"].shape[0]
     action_size = env.action_space.n
 
+    hydra_cfg = hydra.core.hydra_config.HydraConfig.get()
+    metrics_output_dir = Path(hydra_cfg["runtime"]["output_dir"]) / Path(
+        "test_metrics/"
+    )
+    metrics_output_dir.mkdir(parents=True, exist_ok=True)
+    video_output_dir = Path(hydra_cfg["runtime"]["output_dir"]) / Path("videos/")
+    video_output_dir.mkdir(parents=True, exist_ok=True)
+
     n_eval_episodes = int(cfg["eval"]["n_eval_episodes"])
     weights_paths = cfg["eval"]["weights"]
 
+    num_video_rollouts = cfg["logging"]["video_rollouts"]
+    video_fps = cfg["logging"]["video_fps"]
+
     test_metrics = Metrics()
     logging_prefix = cfg["logging"]["prefix"]
-
-    hydra_cfg = hydra.core.hydra_config.HydraConfig.get()
-    output_dir = Path(hydra_cfg["runtime"]["output_dir"]) / Path("test_metrics/")
-    output_dir.mkdir()
 
     for i, weights_path in tqdm(enumerate(weights_paths), desc="Model Weights"):
         console_logger.info(f"Evaluating method={agent_name}, Model weights={i}")
@@ -176,6 +208,10 @@ def main(cfg: DictConfig):
             n_eval_episodes=n_eval_episodes,
             logging_prefix=logging_prefix,
             seed=seed,
+            num_video_rollouts=num_video_rollouts,
+            video_output_dir=video_output_dir,
+            video_fps=video_fps,
+            agent_id=i,
         )
 
         for k, v in rollouts_metrics.items():
@@ -186,12 +222,12 @@ def main(cfg: DictConfig):
     aggregated_test_metrics = test_metrics.compute_aggregated_metrics()
 
     with open(
-        output_dir / Path(f"{agent_name}_{logging_prefix}_metrics.json"),
+        metrics_output_dir / Path(f"{agent_name}_{logging_prefix}_metrics.json"),
         "w",
     ) as f:
         json.dump(aggregated_test_metrics, f)
 
-    console_logger.info(f"Saved test metrics to : {str(output_dir)}")
+    console_logger.info(f"Saved test metrics to : {str(metrics_output_dir)}")
 
 
 if __name__ == "__main__":

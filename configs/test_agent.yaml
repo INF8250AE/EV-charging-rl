@@ -12,6 +12,8 @@ experiment:
 
 logging:
   prefix: "test"
+  video_rollouts: 2
+  video_fps: 4
 
 eval:
   seed: 753
@@ -19,6 +21,6 @@ eval:
 
   # Change these paths to match real file locations !!!!!
   weights:
-    - "outputs/train_ga/2025-12-15/12-03-02/ga_best_genome_seed_42.pt"
+    - "outputs/2025-12-14_22-50-46/ddqn_train_agent/weights/ddqn_500000.pt"
     - "outputs/2025-12-14_22-50-46/ddqn_train_agent/weights/ddqn_500000.pt"
     - "outputs/2025-12-14_22-50-46/ddqn_train_agent/weights/ddqn_500000.pt"

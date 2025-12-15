@@ -15,7 +15,7 @@ logging:
 
 eval:
   seed: 753
-  n_eval_episodes: 50
+  n_eval_episodes: 100
 
   # Change these paths to match real file locations !!!!!
   weights:

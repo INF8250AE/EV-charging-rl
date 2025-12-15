@@ -43,9 +43,8 @@ class CriticNet(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.net(x)  # (B, 1)
 
-
 class ActorCriticAgent:
-        """
+    """
         A2C update (one-step TD):
           td_target = r + gamma * V(next_state) * (1 - done)
           advantage  = td_target - V(state)                 # advantage = td_error
@@ -53,7 +52,7 @@ class ActorCriticAgent:
         actor_loss  = -log π(a|s) * td_error.detach()
         actor_loss ​ = −logπ(a∣s)⋅advantage.detach() - entropy_coef * entropy ---> when we consider entropy term
         critic_loss = td_error**2 -->  HERE:  critic_loss = Huber( V(s), td_target )
-        """
+    """
 
     def __init__(
         self,
@@ -67,14 +66,18 @@ class ActorCriticAgent:
         model_hidden_dim: int,
         model_nb_layers: int,
         entropy_coef: float = 0.0,
-        normalize_rewards: bool = False,
-    ):
+        normalize_rewards: bool = False):
+        
         self.state_size = state_size
         self.action_size = action_size
         self.seed = seed
         self.gamma = gamma
         self.entropy_coef = float(entropy_coef)
         self.normalize_rewards = bool(normalize_rewards)
+
+        self._last_log_prob = None
+        self._last_entropy = None
+        self._last_action = None
 
         # seeded generator (for reproducible sampling)
         self.generator = torch.Generator().manual_seed(seed)
@@ -118,7 +121,12 @@ class ActorCriticAgent:
         log_prob = dist.log_prob(action)                # (1,)
         entropy = dist.entropy()                        # (1,)
 
-        return action, log_prob, entropy
+        # cache for update()
+        self._last_action = action
+        self._last_log_prob = log_prob
+        self._last_entropy = entropy
+
+        return action
 
     def test_action(self, state: torch.Tensor) -> int:
         """
@@ -132,10 +140,17 @@ class ActorCriticAgent:
             logits = self.actor(state)  # (1, action_size)
             return int(torch.argmax(logits[0]).item())
 
-    def update(self, state, action, log_prob, entropy, reward, next_state, done) -> dict:
+    def update(self, state, reward, next_state, done) -> dict:
 
         state = state.to(self.device)
         next_state = next_state.to(self.device)
+
+        # Use cached values
+        if self._last_log_prob is None:
+            raise RuntimeError("A2C update called before action() produced log_prob.")
+
+        log_prob = self._last_log_prob
+        entropy = self._last_entropy
 
         if state.dim() == 1:
             state = state.unsqueeze(0)

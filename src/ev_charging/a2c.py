@@ -104,6 +104,17 @@ class ActorCriticAgent:
         self.actor_losses = []
         self.critic_losses = []
 
+    def train(self):
+        """Put actor and critic networks into training mode."""
+        self.actor.train()
+        self.critic.train()
+
+    def eval(self):
+        """Put actor and critic networks into evaluation mode."""
+        self.actor.eval()
+        self.critic.eval()
+
+
     def action(self, state: torch.Tensor):
         """
         Stochastic action for training.
@@ -117,7 +128,7 @@ class ActorCriticAgent:
         logits = self.actor(state)              # (1, action_size)
         dist = Categorical(logits=logits)
 
-        action = dist.sample(generator=self.generator)  # (1,)
+        action = dist.sample()  # (1,)
         log_prob = dist.log_prob(action)                # (1,)
         entropy = dist.entropy()                        # (1,)
 
@@ -209,13 +220,17 @@ class ActorCriticAgent:
         }
 
     def state_dict(self):
-        """
-        Save both actor and critic weights (matches your evaluation loader pattern).
-        """
         return {
             "actor": self.actor.state_dict(),
             "critic": self.critic.state_dict(),
         }
+
+    def save(self, path):
+        torch.save(self.state_dict(), path)
+
+    def load(self, path):
+        ckpt = torch.load(path, map_location=self.device)
+        self.load_state_dict(ckpt)
 
     def load_state_dict(self, ckpt: dict):
         """
@@ -223,3 +238,11 @@ class ActorCriticAgent:
         """
         self.actor.load_state_dict(ckpt["actor"])
         self.critic.load_state_dict(ckpt["critic"])
+        
+    def on_env_transition(self, state, action, reward, next_state, done, train_batch_size, env_step) -> dict:
+        return self.update(state, reward, next_state, done)
+    
+    def on_train_step_done(self, env_step: int):
+        pass
+
+    

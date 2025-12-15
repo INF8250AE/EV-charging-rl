@@ -564,7 +564,7 @@ class EvVizRecorder:
         center_x = sx + (ex - sx) * 0.50
         center_y = sy + (ey - sy) * 0.50
 
-        vertical_offset = 15
+        vertical_offset = 10
 
         dx = ex - sx
         dy = ey - sy

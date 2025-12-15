@@ -38,6 +38,13 @@ uv run scripts/train_agent.py algo=ddqn
 You can change the training seed in the config or pass `training.seed=42` for instance.  
 We use multiple training seeds to report our results.
 
+## A2C
+```bash
+uv run scripts/train_agent.py algo=a2c
+```
+You can change the training seed in the config or pass `training.seed=42` for instance.  
+We use multiple training seeds to report our results.
+
 ## Genetic Algorithm
 ```bash
 uv run scripts/train_ga.py algo.agent.n_generations=5 algo.agent.n_eval_episodes=10 training.n_logging_episodes=30
@@ -48,6 +55,14 @@ uv run scripts/train_ga.py algo.agent.n_generations=5 algo.agent.n_eval_episodes
 ```bash
 uv run scripts/test_agent.py \
     algo=ddqn \
+    'eval.weights=["trained_agent_weights_1.pt", "trained_agent_weights_2.pt", "trained_agent_weights_3.pt"]'
+```
+You need to replace `"trained_agent_weights_X.pt"` with the path to the trained weights (here X represents different training seeds).
+
+## A2C
+```bash
+uv run scripts/test_agent.py \
+    algo=a2c \
     'eval.weights=["trained_agent_weights_1.pt", "trained_agent_weights_2.pt", "trained_agent_weights_3.pt"]'
 ```
 You need to replace `"trained_agent_weights_X.pt"` with the path to the trained weights (here X represents different training seeds).

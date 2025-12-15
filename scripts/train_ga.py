@@ -2,6 +2,7 @@ import hydra
 import sys
 import torch
 import numpy as np
+import random
 from pathlib import Path
 from omegaconf import DictConfig, OmegaConf
 from loguru import logger as console_logger
@@ -94,6 +95,10 @@ def main(cfg: DictConfig):
 
     agent_name = cfg["algo"]["name"]
     seed = cfg["training"]["seed"]
+    random.seed(seed)
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    torch.cuda.manual_seed_all(seed)
 
     console_logger.info("Creating training environment...")
     env = instantiate(cfg["env"])(seed=seed)

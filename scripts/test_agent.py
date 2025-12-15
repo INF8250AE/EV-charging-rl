@@ -3,6 +3,7 @@ import sys
 import json
 import numpy as np
 import torch
+import random
 from tqdm import tqdm
 from pathlib import Path
 from omegaconf import DictConfig
@@ -138,6 +139,10 @@ def main(cfg: DictConfig):
     agent_name = cfg["algo"]["name"]
 
     seed = cfg["eval"]["seed"]
+    random.seed(seed)
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    torch.cuda.manual_seed_all(seed)
 
     env = instantiate(cfg["env"])(seed=seed)
 

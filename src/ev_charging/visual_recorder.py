@@ -22,7 +22,6 @@ class CarSnap:
     desired_soc: float
     capacity: float
     urgency: float
-    # Traveling-only fields (0 if not traveling)
     max_travel_time: float = 0.0
     travel_time_remaining: float = 0.0
 
@@ -32,9 +31,13 @@ class StationSnap:
     station_id: int
     nb_chargers: int
     max_nb_cars_waiting: int
+    charge_speed: int
+    max_nb_cars_traveling: int
     cars_charging: List[CarSnap]
     cars_waiting: List[CarSnap]
     cars_traveling: List[CarSnap]
+    travel_mean: float = 0.0
+    travel_std: float = 0.0
 
 
 @dataclass
@@ -45,6 +48,7 @@ class StepSnap:
     steps_until_next_arrival: int
     incoming: Optional[CarSnap]
     stations: List[StationSnap]
+    received_station_full_penalty: bool = False
 
 
 class EvVizRecorder:
@@ -86,8 +90,12 @@ class EvVizRecorder:
         self.c_station_bg = (0.18, 0.18, 0.22)
         self.c_text_main = (0.9, 0.9, 0.9)
         self.c_text_sub = (0.6, 0.6, 0.6)
+        self.c_text_info = (0.7, 0.7, 0.9)  # Light blue/purple for info
 
         self.c_road = (0.3, 0.3, 0.35)
+        self.c_road_congested = (0.95, 0.75, 0.2)  # Yellow/Orange for congestion
+        self.c_decision_penalty = (0.85, 0.3, 0.3)  # Red for penalty
+
         self.c_slot_empty = (0.25, 0.25, 0.28)
         self.c_slot_outline = (0.4, 0.4, 0.45)
 
@@ -99,6 +107,9 @@ class EvVizRecorder:
         self.c_car_done = (0.3, 0.8, 0.4)  # Green
 
         self.nb_stations = len(env.stations)
+
+        # Max charge speed across all stations for normalization display
+        self.max_charge_speed_all_stations = max(st.charge_speed for st in env.stations)
 
         # Dynamic height calculation with padding
         self.margin_y = 60
@@ -113,12 +124,10 @@ class EvVizRecorder:
         # Snapshot storage
         self.snaps: List[StepSnap] = []
         self._last_request_ptr: Optional[int] = None
+        # NEW: Store info from the last step to check for penalty on the *current* step
+        self._last_step_info = None
 
         os.makedirs(os.path.dirname(self.output_path) or ".", exist_ok=True)
-
-    # -------------------------
-    # Snapshot logic
-    # -------------------------
 
     def _tensor_to_scalar(self, val):
         if isinstance(val, torch.Tensor):
@@ -163,10 +172,15 @@ class EvVizRecorder:
 
         return freq_ok or changed
 
-    def record_step(self, action, reward, done):
+    def record_step(self, action, reward, done, info):
         """
         Store a lightweight snapshot. No rendering is performed here.
+        'info' is required here to capture the penalty status.
         """
+        # Store the info dict from the *previous* step to check for penalty
+        if info is not None:
+            self._last_step_info = info
+
         if not self._should_snapshot(done):
             return
 
@@ -175,6 +189,11 @@ class EvVizRecorder:
             self._tensor_to_scalar(getattr(self.env, "steps_until_next_arrival", 0))
         )
         step_count = int(getattr(self.env, "step_count", 0))
+
+        # Check for penalty from the last step that was executed
+        penalty_received = bool(
+            self._last_step_info.get("received_station_full_penalty", 0)
+        )
 
         incoming = None
         if getattr(self.env, "car_to_route", None) is not None:
@@ -187,6 +206,8 @@ class EvVizRecorder:
                     station_id=int(getattr(st, "id", 0)),
                     nb_chargers=int(getattr(st, "nb_chargers", 0)),
                     max_nb_cars_waiting=int(getattr(st, "max_nb_cars_waiting", 0)),
+                    charge_speed=int(getattr(st, "charge_speed", 0)),
+                    max_nb_cars_traveling=int(getattr(st, "max_nb_cars_traveling", 0)),
                     cars_charging=[
                         self._snap_car(c, traveling=False)
                         for c in getattr(st, "cars_charging", [])
@@ -199,6 +220,13 @@ class EvVizRecorder:
                         self._snap_car(c, traveling=True)
                         for c in getattr(st, "cars_traveling", [])
                     ],
+                    # --- Retrieve Distribution Parameters ---
+                    travel_mean=float(
+                        self._tensor_to_scalar(st.travel_distribution.mean)
+                    ),
+                    travel_std=float(
+                        self._tensor_to_scalar(st.travel_distribution.stddev)
+                    ),
                 )
             )
 
@@ -210,12 +238,9 @@ class EvVizRecorder:
                 steps_until_next_arrival=steps_until_next_arrival,
                 incoming=incoming,
                 stations=stations,
+                received_station_full_penalty=penalty_received,
             )
         )
-
-    # -------------------------
-    # Rendering from snapshots
-    # -------------------------
 
     def _render_from_snap(self, snap: StepSnap) -> np.ndarray:
         fig = plt.figure(
@@ -250,8 +275,20 @@ class EvVizRecorder:
         for i, st in enumerate(snap.stations):
             end_pos = (self.pos_station_start_x, station_anchors[i][1])
             is_active_action = (snap.action == i) and (snap.incoming is not None)
+
+            # Draw road, checking for penalty and congestion
+            is_penalty_line = is_active_action and snap.received_station_full_penalty
+
             self._draw_road_from_snap(
-                ax, agent_pos, end_pos, st.cars_traveling, is_active_action
+                ax,
+                agent_pos,
+                end_pos,
+                st.cars_traveling,
+                st.max_nb_cars_traveling,
+                is_active_action,
+                is_penalty_line,
+                st.travel_mean,
+                st.travel_std,
             )
 
         # Incoming card / no request
@@ -264,9 +301,14 @@ class EvVizRecorder:
                 (agent_pos[0] - 30, agent_pos[1]),
                 "data",
                 "data",
-                color="white",
+                # Change color if this was the action that received the penalty
+                color=(
+                    self.c_decision_penalty
+                    if snap.received_station_full_penalty
+                    else "white"
+                ),
                 linestyle="--",
-                alpha=0.3,
+                alpha=0.6,
             )
             ax.add_patch(con)
         else:
@@ -301,9 +343,38 @@ class EvVizRecorder:
             y + h / 2 - 20,
             f"STATION {station.station_id}",
             color="white",
-            fontsize=11,
+            fontsize=12,
             weight="bold",
             va="center",
+        )
+
+        # Draw Charge Speed Bar
+        speed_norm = station.charge_speed / self.max_charge_speed_all_stations
+        speed_w = w * 0.45
+        speed_h = 4
+        speed_x = x + w - speed_w - 5
+        speed_y = y + h / 2 - 25
+
+        ax.text(
+            speed_x,
+            speed_y + speed_h + 2,
+            f"SPEED: {station.charge_speed} ({speed_norm:.1f})",
+            color=self.c_text_sub,
+            fontsize=8,
+            va="bottom",
+            ha="left",
+        )
+        ax.add_patch(
+            patches.Rectangle((speed_x, speed_y), speed_w, speed_h, fc="#444", zorder=6)
+        )
+        ax.add_patch(
+            patches.Rectangle(
+                (speed_x, speed_y),
+                speed_w * speed_norm,
+                speed_h,
+                fc="#2ecc71",
+                zorder=7,
+            )
         )
 
         content_y_top = y + h / 2 - header_h
@@ -448,16 +519,96 @@ class EvVizRecorder:
         )
 
     def _draw_road_from_snap(
-        self, ax, start_pos, end_pos, cars_traveling: List[CarSnap], is_active: bool
+        self,
+        ax,
+        start_pos,
+        end_pos,
+        cars_traveling: List[CarSnap],
+        max_nb_cars_traveling: int,
+        is_active: bool,
+        is_penalty_line: bool,
+        travel_mean: float,
+        travel_std: float,
     ):
         sx, sy = start_pos
         ex, ey = end_pos
 
-        alpha = 0.6 if is_active else 0.2
-        width = 3 if is_active else 1.5
-        color = "white" if is_active else self.c_road
+        # Determine congestion level for road width/color
+        if max_nb_cars_traveling > 0:
+            congestion_ratio = len(cars_traveling) / max_nb_cars_traveling
+        else:
+            congestion_ratio = 0.0
+
+        is_congested = congestion_ratio >= 1.0
+
+        # Choose color and width based on action and status
+        if is_penalty_line:
+            color = self.c_decision_penalty
+            width = 5
+            alpha = 0.9
+        elif is_active:
+            color = "white"
+            width = 3
+            alpha = 0.8
+        elif is_congested:
+            color = self.c_road_congested
+            width = 2
+            alpha = 0.6
+        else:
+            color = self.c_road
+            width = 1.5
+            alpha = 0.3
 
         ax.plot([sx, ex], [sy, ey], color=color, linewidth=width, alpha=alpha, zorder=1)
+
+        center_x = sx + (ex - sx) * 0.50
+        center_y = sy + (ey - sy) * 0.50
+
+        vertical_offset = 15
+
+        dx = ex - sx
+        dy = ey - sy
+
+        # Calculate angle in radians and convert to degrees
+        angle_radians = np.arctan2(dy, dx)
+        angle_degrees = np.degrees(angle_radians)
+
+        # Calculate offset perpendicular to the line
+        offset_x = -vertical_offset * np.sin(angle_radians)
+        offset_y = vertical_offset * np.cos(angle_radians)
+
+        # Apply offset to the center point
+        text_x = center_x + offset_x
+        text_y = center_y + offset_y
+
+        ax.text(
+            text_x,
+            text_y,
+            f"μ={travel_mean:.1f}, \u03c3={travel_std:.1f}",
+            color=self.c_text_info,
+            fontsize=10,
+            weight="bold",
+            ha="center",
+            va="bottom",
+            zorder=3,
+            rotation=angle_degrees,
+        )
+
+        # Display congestion info (Near Station, 80% distance)
+        if max_nb_cars_traveling > 0:
+            mid_x = sx + (ex - sx) * 0.8
+            mid_y = sy + (ey - sy) * 0.8
+            ax.text(
+                mid_x,
+                mid_y + 30,
+                f"T: {len(cars_traveling)}/{max_nb_cars_traveling}",
+                color=self.c_road_congested if is_congested else self.c_text_sub,
+                fontsize=10,
+                weight="bold" if is_congested else "normal",
+                ha="center",
+                va="center",
+                zorder=3,
+            )
 
         dx = ex - sx
         dy = ey - sy
@@ -490,7 +641,7 @@ class EvVizRecorder:
                 cx,
                 cy,
                 f"{int(t_rem)}",
-                fontsize=6,
+                fontsize=7,
                 color="black",
                 ha="center",
                 va="center",
@@ -621,10 +772,6 @@ class EvVizRecorder:
         ax.text(
             20, self.height - 60, f"REWARD: {reward:.2f}", color="white", fontsize=12
         )
-
-    # -------------------------
-    # Save video
-    # -------------------------
 
     def save(self):
         if not self.snaps:

@@ -1,6 +1,7 @@
 import hydra
 import sys
 import torch
+import random
 import numpy as np
 from pathlib import Path
 from tqdm import tqdm
@@ -22,6 +23,10 @@ def main(cfg: DictConfig):
 
     train_seed = cfg["training"]["seed"]
     console_logger.info(f"Training Seed : {train_seed}")
+    random.seed(train_seed)
+    torch.manual_seed(train_seed)
+    np.random.seed(train_seed)
+    torch.cuda.manual_seed_all(train_seed)
 
     env = instantiate(cfg["env"])(seed=train_seed)
     env.reset(seed=train_seed)
@@ -113,7 +118,7 @@ def main(cfg: DictConfig):
         state = next_state
 
         if recording:
-            recorder.record_step(action=action, reward=reward, done=done)
+            recorder.record_step(action=action, reward=reward, done=done, info=info)
             frames_left -= 1
 
             if env_step == clip_end_step or frames_left <= 0:

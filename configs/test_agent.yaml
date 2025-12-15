@@ -1,6 +1,6 @@
 defaults:
   - _self_
-  - algo: ddqn
+  - algo: random
   - env: train
 
 hydra:

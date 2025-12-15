@@ -1,6 +1,8 @@
 import hydra
 import sys
 import torch
+import random
+import numpy as np
 from tqdm import tqdm
 from omegaconf import DictConfig
 from loguru import logger as console_logger
@@ -16,8 +18,13 @@ def main(cfg: DictConfig):
     console_logger.info(f"PYTHONPATH : {sys.path}")
     console_logger.info(f"PyTorch : {torch.__version__}")
     console_logger.info(f"PyTorch CUDA : {torch.version.cuda}")
+    seed = cfg["exploration"]["seed"]
+    random.seed(seed)
+    torch.manual_seed(seed)
+    np.random.seed(seed)
+    torch.cuda.manual_seed_all(seed)
 
-    env = instantiate(cfg["env"])(seed=cfg["exploration"]["seed"])
+    env = instantiate(cfg["env"])(seed=seed)
 
     hydra_cfg = hydra.core.hydra_config.HydraConfig.get()
     output_dir = hydra_cfg["runtime"]["output_dir"]
@@ -39,7 +46,7 @@ def main(cfg: DictConfig):
             done = terminated or truncated
 
             if len(recorder.snaps) < cfg["logging"]["max_video_frames"]:
-                recorder.record_step(action, reward, done)
+                recorder.record_step(action, reward, done, info)
 
     recorder.save()
 

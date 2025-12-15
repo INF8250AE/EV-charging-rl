@@ -16,9 +16,8 @@ uv sync
 uv run scripts/explore_env.py
 ```
 
-# Train Agent
-## Logging
-### CometML  
+# Logging
+## CometML  
 
 (Optional): If you want to use CometML logging, set the env variables:  
 ```bash
@@ -26,12 +25,35 @@ export COMET_API_KEY=<YOUR_VALUE>
 export COMET_PROJECT_NAME=<YOUR_VALUE>
 export COMET_WORKSPACE=<YOUR_VALUE>
 ```  
-Then add this to your train command : `logging.use_cometml=true`
-### Stdout  
+Then add this to your train/test command : `logging.use_cometml=true`
+## Stdout  
 
-Use `logging.use_cometml=false` when launching the training.  
+Use `logging.use_cometml=false` when launching the training (eg: `uv run scripts/train_agent.py algo=ddqn logging.use_cometml=false`).  
 
+# Train Agent
 ## DDQN
 ```bash
 uv run scripts/train_agent.py algo=ddqn
 ```
+
+## Genetic Algorithm
+```bash
+uv run scripts/train_ga.py algo.agent.n_generations=5 algo.agent.n_eval_episodes=10 training.n_logging_episodes=30
+```
+
+# Test Agent
+## DDQN
+```bash
+uv run scripts/test_agent.py \
+    algo=ddqn \
+    'eval.weights=["trained_agent_weights_1.pt", "trained_agent_weights_2.pt", "trained_agent_weights_3.pt"]'
+```
+You need to replace `"trained_agent_weights_X.pt"` with the path to the trained weights (here X represents different training seeds).
+
+## Genetic Algorithm
+```bash
+uv run scripts/test_agent.py \
+    algo=ga \
+    'eval.weights=["best_genome_1.pt", "best_genome_2.pt", "best_genome_3.pt"]'
+```
+You need to replace `"best_genome_X.pt"` with the path to the best genome obtained during training (here X represents different training seeds).

@@ -162,6 +162,8 @@ def main(cfg: DictConfig):
         )
         agent.load_pretrained_weights(weights_path)
         agent.eval()
+        if agent_name == "ga":
+            agent.set_env(env)
 
         rollouts_metrics = eval_policy(
             env,

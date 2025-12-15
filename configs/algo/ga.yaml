@@ -5,8 +5,8 @@ agent:
   _target_: ev_charging.ga.GeneticAlgorithmEV
   genome_dim: 6
   population_size: 20
-  n_generations: 10
+  n_generations: 5
   elite_frac: 0.2
   mutation_std: 0.1
   mutation_prob: 0.3
-  n_eval_episodes: 30
+  n_eval_episodes: 10

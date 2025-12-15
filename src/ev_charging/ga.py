@@ -1,4 +1,5 @@
 import torch
+import numpy as np  # Added for metric calculation in detailed evaluation
 from ev_charging.env import NB_STATE_PER_CAR
 
 
@@ -8,11 +9,13 @@ class GeneticAlgorithmEV:
         genome_dim: int,
         population_size: int,
         n_generations: int,
-        elite_frac: float,  # The top 20% of genomes (by fitness) survive to the next generation
-        mutation_std: float,  # Standard deviation of Gaussian noise added to genome values during mutation.
-        mutation_prob: float,  # Probability that a newly created child (via crossover) gets mutated -> 30% get Gaussian noise, others unchanged
+        elite_frac: float,
+        mutation_std: float,
+        mutation_prob: float,
         n_eval_episodes: int,
         seed: int,
+        state_size=None,  # For compatibility with test script
+        action_size=None,  # For compatibility with test script
     ):
         self.genome_dim = genome_dim
         self.population_size = population_size
@@ -23,12 +26,16 @@ class GeneticAlgorithmEV:
         self.n_eval_episodes = n_eval_episodes
         self.generator = torch.Generator().manual_seed(seed)
 
-        self.best_genome = None
+        self.best_genome = None  # Set by run() or load_pretrained_weights()
         self.best_fitness = float("-inf")
         self.best_fitness_history = []
 
+        self.env = None  # Set during testing
+        self.population = None  # Initialized in initialize_training
+        self.n_elite = None  # Initialized in initialize_training
+
     def _init_population(self):
-        # Uniform init in [-1, 1]
+        """Initialize random population"""
         return (
             torch.rand(self.population_size, self.genome_dim, generator=self.generator)
             * 2.0
@@ -36,142 +43,191 @@ class GeneticAlgorithmEV:
 
     def heuristic_action_from_genome(self, genome, env, state):
         """
-        genome: np.array of shape (6,) -> weights [w0,w1,w2,w3,w4,w5]
-        env: EvChargingEnv instance
-        obs: observation dict from env ({"state": torch.Tensor})
-
-        Output: int action = selected station index
+        Select action based on genome weights
+        genome: torch.Tensor of shape (6,)
+        state: torch.Tensor from env
         """
+        # Ensure state is a tensor
+        if not isinstance(state, torch.Tensor):
+            state = torch.tensor(state)
 
         car_vec = state[0:NB_STATE_PER_CAR]
 
-        travel_time_norm = car_vec[0]
-        soc = car_vec[1]
-        desired_soc = car_vec[2]
-        capacity_norm = car_vec[3]
         urgency = car_vec[4]
+        soc = car_vec[1]
 
         scores = []
-
-        # genome = [w0, w1, w2, w3, w4, w5]
         w0, w1, w2, w3, w4, w5 = genome
 
-        # Normalize features in get_state())
         for station in env.stations:
-            station_state_t = station.get_state()  # torch.Tensor
-            station_state = station_state_t.detach().cpu().numpy()
+            station_state = station.get_state()  # Already a tensor
 
-            # First 8 entries = station_only_state:[charge_speed_norm, charge_speed_sharpness_norm, nb_free_chargers_norm, nb_cars_traveling_norm,
-            #  nb_cars_charging_norm, nb_cars_waiting_norm, is_max_nb_cars_traveling_reached, is_max_nb_cars_waiting_reached]
             charge_speed_norm = station_state[0]
-            nb_free_chargers_norm = station_state[3]
-            nb_cars_waiting_norm = station_state[6]
+            nb_free_chargers_norm = station_state[2]
+            nb_cars_waiting_norm = station_state[5]
 
-            # Define features for scoring
             x1 = charge_speed_norm
             x2 = nb_free_chargers_norm
             x3 = nb_cars_waiting_norm
             x4 = urgency
             x5 = 1.0 - soc
 
-            # Linear scoring heuristic
             score = w0 + w1 * x1 + w2 * x2 - w3 * x3 + w4 * x4 + w5 * x5
             scores.append(score)
 
-        best_station = int(torch.argmax(torch.tensor(scores)).item())
+        scores_tensor = torch.stack(scores)
+        best_station = torch.argmax(scores_tensor).item()
         return best_station
 
+    def test_action(self, state):
+        if self.best_genome is None:
+            raise ValueError(
+                "No genome loaded! Must call load_pretrained_weights() first."
+            )
+        if self.env is None:
+            raise ValueError("Environment not set! Must call set_env() first.")
+
+        action_idx = self.heuristic_action_from_genome(
+            self.best_genome, self.env, state
+        )
+        return torch.tensor(action_idx)
+
+    def set_env(self, env):
+        """Set environment reference for testing"""
+        self.env = env
+
+    def load_pretrained_weights(self, weights_path):
+        """Load the trained genome from file"""
+        checkpoint = torch.load(weights_path, weights_only=True)
+        self.best_genome = checkpoint["best_genome"]
+        self.best_fitness = checkpoint.get("best_fitness", float("-inf"))
+        print(f"Loaded genome with fitness: {self.best_fitness:.3f}")
+
+    def save(self, path):
+        """Save the trained genome to file"""
+        torch.save(
+            {
+                "best_genome": self.best_genome,
+                "best_fitness": self.best_fitness,
+                "best_fitness_history": self.best_fitness_history,
+            },
+            path,
+        )
+
+    def eval(self):
+        pass
+
+    def train(self):
+        pass
+
     def evaluate_genome(self, genome, env, n_eval_episodes=3):
-        total_return = 0.0
+        """
+        Evaluate a single genome's fitness.
+        Returns: mean_return, all_returns, all_rewards, all_actions, all_infos
+        """
+        all_returns = []
+        all_rewards = []
+        all_actions = []
+        all_infos = []  # New list to collect info dicts
 
         for ep in range(n_eval_episodes):
             obs, info = env.reset()
-
+            state = obs["state"]
             episode_return = 0.0
+            episode_rewards = []
+            episode_actions = []
             done = False
             truncated = False
 
             while not (done or truncated):
-
-                # Select action from heuristic
-                action_idx = self.heuristic_action_from_genome(genome, env, obs)
-                action_tensor = torch.tensor(
-                    action_idx, device=env._device
-                )  # Env needs a torch.Tensor action
-
+                action_idx = self.heuristic_action_from_genome(genome, env, state)
+                action_tensor = torch.tensor(action_idx, device=env._device)
                 obs, reward, done, truncated, info = env.step(action_tensor)
+                state = obs["state"]
 
-                reward = (
-                    float(reward.item()) if isinstance(reward, torch.Tensor) else reward
-                )  # reward: torch scalar -> float
-                episode_return += reward
+                reward_val = reward.item()
+                episode_return += reward_val
 
-            total_return += episode_return
+                episode_rewards.append(reward_val)
+                episode_actions.append(action_idx)
+                all_infos.append(info)  # Collect the info dict for this step!
 
-        mean_return = total_return / n_eval_episodes
+            all_returns.append(episode_return)
+            all_rewards.extend(episode_rewards)
+            all_actions.extend(episode_actions)
 
-        return mean_return
+        mean_return = np.mean(all_returns) if all_returns else 0.0
+
+        return (
+            mean_return,
+            np.array(all_returns),
+            np.array(all_rewards),
+            np.array(all_actions),
+            all_infos,
+        )
 
     def _evaluate_population(self, population, env):
+        """Evaluate all genomes in population, only returning mean fitness."""
         fitnesses = []
         for genome in population:
-            fit = self.evaluate_genome(
+            # Update the unpacking to ignore the three extra return values (rewards, actions, infos)
+            fit, _, _, _, _ = self.evaluate_genome(
                 genome, env, n_eval_episodes=self.n_eval_episodes
             )
             fitnesses.append(fit)
         return torch.tensor(fitnesses)
 
-    def run(self, env):
-        population = self._init_population()
-        n_elite = max(1, int(self.elite_frac * self.population_size))
+    def initialize_training(self, env):
+        """Initialize population and environment reference before starting the loop."""
+        self.env = env
+        self.population = self._init_population()
+        self.n_elite = max(1, int(self.elite_frac * self.population_size))
 
-        for gen in range(self.n_generations):
-            fitnesses = self._evaluate_population(population, env)
+    def run_generation(self):
+        """Runs one generation of evolution (Evaluation, Selection, Crossover, Mutation)."""
+        if self.env is None or self.population is None:
+            raise ValueError("Must call initialize_training(env) first.")
 
-            # Track best
-            best_idx = torch.argmax(fitnesses).item()
-            best_fit = fitnesses[best_idx]
-            best_gen = population[best_idx]
+        env = self.env
 
-            if best_fit > self.best_fitness:
-                self.best_fitness = best_fit
-                self.best_genome = best_gen.copy()
+        fitnesses = self._evaluate_population(self.population, env)
 
-            self.best_fitness_history.append(self.best_fitness)
+        best_idx = torch.argmax(fitnesses).item()
+        best_fit = fitnesses[best_idx].item()
+        best_gen = self.population[best_idx]
 
-            print(
-                f"[GA] Gen {gen} | gen_best={best_fit:.3f} | overall_best={self.best_fitness:.3f}"
-            )
+        if best_fit > self.best_fitness:
+            self.best_fitness = best_fit
+            self.best_genome = best_gen.clone()
 
-            # Select elites
-            elite_indices = torch.argsort(fitnesses)[-n_elite:]
-            elites = population[elite_indices]
+        self.best_fitness_history.append(self.best_fitness)
 
-            # Build new population
-            new_pop = [elites[0]]  # keep the best individual always
+        # Selection: keep top performers
+        elite_indices = torch.argsort(fitnesses)[-self.n_elite :]
+        elites = self.population[elite_indices]
 
-            while len(new_pop) < self.population_size:
-                # Select two parents randomly from elite set
-                p1, p2 = (
-                    elites[torch.randint(0, n_elite, generator=self.generator)],
-                    elites[torch.randint(0, n_elite, generator=self.generator)],
+        # Build next generation
+        new_pop = [elites[-1]]  # Keep best
+
+        while len(new_pop) < self.population_size:
+            # Crossover
+            idx1 = torch.randint(0, self.n_elite, (1,), generator=self.generator).item()
+            idx2 = torch.randint(0, self.n_elite, (1,), generator=self.generator).item()
+            p1, p2 = elites[idx1], elites[idx2]
+
+            mask = torch.rand(self.genome_dim, generator=self.generator) < 0.5
+            child = torch.where(mask, p1, p2)
+
+            # Mutation
+            if torch.rand(1, generator=self.generator).item() < self.mutation_prob:
+                child = (
+                    child
+                    + torch.randn(self.genome_dim, generator=self.generator)
+                    * self.mutation_std
                 )
 
-                # Uniform crossover
-                mask = torch.rand(self.genome_dim, generator=self.generator) < 0.5
-                child = torch.where(mask, p1, p2)
+            new_pop.append(child)
 
-                # Mutation
-                if torch.rand(generator=self.generator) < self.mutation_prob:
-                    child = child + torch.normal(
-                        0,
-                        self.mutation_std,
-                        size=self.genome_dim,
-                        generator=self.generator,
-                    )
+        self.population = torch.stack(new_pop)
 
-                new_pop.append(child)
-
-            population = torch.tensor(new_pop)
-
-        return self.best_genome, self.best_fitness, self.best_fitness_history
+        return best_gen, best_fit

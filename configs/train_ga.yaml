@@ -1,0 +1,14 @@
+defaults:
+  - _self_
+  - algo: ga
+  - env: train
+hydra:
+  run:
+    dir: outputs/${now:%Y-%m-%d_%H-%M-%S}/${algo.name}_${experiment.type}
+experiment:
+  type: "train_ga"
+logging:
+  use_cometml: false
+training:
+  seed: 42
+  n_logging_episodes: 30

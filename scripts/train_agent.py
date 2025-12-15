@@ -90,11 +90,6 @@ def main(cfg: DictConfig):
     clip_start_step = None
 
     for env_step in pbar:
-        action = agent.action(state)
-        next_state_dict, reward, terminated, truncated, info = env.step(action)
-        next_state = next_state_dict["state"]
-        done = terminated or truncated
-
         if (env_step % video_start_every) == 0 and not recording or env_step == 1:
             recording = True
             frames_left = video_frames_per_clip
@@ -114,6 +109,11 @@ def main(cfg: DictConfig):
                 recorder.reset_recording()
                 recording = False
                 clip_start_step = None
+
+        action = agent.action(state)
+        next_state_dict, reward, terminated, truncated, info = env.step(action)
+        next_state = next_state_dict["state"]
+        done = terminated or truncated
 
         agent.add_to_replay_buffer(state, action, reward, next_state, done)
 

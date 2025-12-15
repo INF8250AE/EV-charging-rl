@@ -6,6 +6,7 @@ from pathlib import Path
 from tqdm import tqdm
 from hydra.utils import instantiate
 from omegaconf import DictConfig
+from omegaconf import OmegaConf
 from loguru import logger as console_logger
 from ev_charging.metrics import Metrics
 from ev_charging.visual_recorder import EvVizRecorder
@@ -72,6 +73,10 @@ def main(cfg: DictConfig):
 
         metrics_logger = StdoutLogger()
 
+    metrics_logger.log_parameters(OmegaConf.to_container(cfg, resolve=True))
+    metrics_logger.log_code("./src/")
+    metrics_logger.log_code("./scripts/")
+    metrics_logger.log_code("./configs/")
     verbose_log_ep_interval = cfg["logging"]["verbose_log_ep_interval"]
     step_logging_freq = cfg["logging"]["step_logging_freq"]
     save_model_step_freq = cfg["logging"]["save_model_step_freq"]
@@ -90,7 +95,7 @@ def main(cfg: DictConfig):
         next_state = next_state_dict["state"]
         done = terminated or truncated
 
-        if (env_step % video_start_every) == 0 and not recording:
+        if (env_step % video_start_every) == 0 and not recording or env_step == 1:
             recording = True
             frames_left = video_frames_per_clip
             clip_start_step = env_step
@@ -139,6 +144,44 @@ def main(cfg: DictConfig):
                     metric_value=action.item(),
                     env_step=env_step,
                 )
+                for k, v in info.items():
+                    train_step_metrics.accumulate_metric(
+                        metric_name=f"train_{k}",
+                        metric_value=v,
+                        env_step=env_step,
+                    )
+
+        for k, v in info.items():
+            train_episode_metrics.accumulate_metric(
+                metric_name=f"train_ep_{k}_mean",
+                metric_value=v,
+                env_step=env_step,
+                agg_fn=np.mean,
+            )
+            train_episode_metrics.accumulate_metric(
+                metric_name=f"train_ep_{k}_std",
+                metric_value=v,
+                env_step=env_step,
+                agg_fn=np.std,
+            )
+            train_episode_metrics.accumulate_metric(
+                metric_name=f"train_ep_{k}_min",
+                metric_value=v,
+                env_step=env_step,
+                agg_fn=np.min,
+            )
+            train_episode_metrics.accumulate_metric(
+                metric_name=f"train_ep_{k}_max",
+                metric_value=v,
+                env_step=env_step,
+                agg_fn=np.max,
+            )
+            train_episode_metrics.accumulate_metric(
+                metric_name=f"train_ep_{k}_sum",
+                metric_value=v,
+                env_step=env_step,
+                agg_fn=np.sum,
+            )
 
         train_episode_metrics.accumulate_metric(
             metric_name="train_ep_return",
@@ -165,10 +208,34 @@ def main(cfg: DictConfig):
             agg_fn=np.max,
         )
         train_episode_metrics.accumulate_metric(
+            metric_name="train_ep_reward_mean",
+            metric_value=reward.item(),
+            env_step=env_step,
+            agg_fn=np.mean,
+        )
+        train_episode_metrics.accumulate_metric(
+            metric_name="train_ep_reward_min",
+            metric_value=reward.item(),
+            env_step=env_step,
+            agg_fn=np.min,
+        )
+        train_episode_metrics.accumulate_metric(
+            metric_name="train_ep_reward_max",
+            metric_value=reward.item(),
+            env_step=env_step,
+            agg_fn=np.max,
+        )
+        train_episode_metrics.accumulate_metric(
             metric_name="train_ep_action_median",
             metric_value=action.item(),
             env_step=env_step,
             agg_fn=np.median,
+        )
+        train_episode_metrics.accumulate_metric(
+            metric_name="train_ep_action_std",
+            metric_value=action.item(),
+            env_step=env_step,
+            agg_fn=np.std,
         )
         train_episode_metrics.accumulate_metric(
             metric_name="train_ep_action_min",

@@ -9,7 +9,7 @@ from typing import Optional
 
 NB_STATE_PER_CAR = 5
 
-NB_STATION_ONLY_STATE_PER_STATION = 8
+NB_STATION_ONLY_STATE_PER_STATION = 11
 
 FILLER_VALUE = -1.0
 
@@ -190,23 +190,20 @@ class EvChargingStation:
         nb_cars_traveling_norm = len(self.cars_traveling) / self.max_nb_cars_traveling
         nb_cars_charging_norm = len(self.cars_charging) / self.nb_chargers
         nb_cars_waiting_norm = len(self.cars_waiting) / self.max_nb_cars_waiting
-        is_max_nb_cars_traveling_reached = float(
-            len(self.cars_traveling) == self.max_nb_cars_traveling
-        )
-        is_max_nb_cars_waiting_reached = float(
-            len(self.cars_waiting) == self.max_nb_cars_waiting
-        )
 
         station_only_state = torch.tensor(
             [
                 charge_speed_norm,
                 charge_speed_sharpness_norm,
+                self.nb_chargers,
                 nb_free_chargers_norm,
                 nb_cars_traveling_norm,
                 nb_cars_charging_norm,
                 nb_cars_waiting_norm,
-                is_max_nb_cars_traveling_reached,
-                is_max_nb_cars_waiting_reached,
+                self.travel_distribution.mean.item(),
+                self.travel_distribution.stddev.item(),
+                self.min_travel_time,
+                self.max_travel_time,
             ],
             dtype=torch.float32,
             device=self.device,
@@ -265,8 +262,12 @@ class EvChargingEnv(gym.Env):
         max_charge_speed_sharpness: int = 5,
         min_chargers_per_station: int = 1,
         max_chargers_per_station: int = 5,
-        min_travel_time_to_station: int = 20,
-        max_travel_time_to_station: int = 100,
+        min_travel_time_to_station: int = 2,
+        max_travel_time_to_station: int = 15,
+        min_mean_travel_time_to_station: int = 3,
+        max_mean_travel_time_to_station: int = 10,
+        min_std_travel_time_to_station: int = 0.5,
+        max_std_travel_time_to_station: int = 2.0,
         max_nb_cars_traveling_to_station: int = 10,
         max_nb_cars_waiting_at_station: int = 10,
         min_car_capacity: int = 50,
@@ -302,6 +303,16 @@ class EvChargingEnv(gym.Env):
         self.nb_cars_charged_last_time_step = 0
         self.stations = []
         for station_id in range(nb_stations):
+            mean_travel_time_distribution = dist.Uniform(
+                low=min_mean_travel_time_to_station,
+                high=max_mean_travel_time_to_station + 1,
+            )
+            std_travel_time_distribution = dist.Uniform(
+                low=min_std_travel_time_to_station,
+                high=max_std_travel_time_to_station + 0.0001,
+            )
+            mean_travel_time = mean_travel_time_distribution.sample()
+            std_travel_time = std_travel_time_distribution.sample()
             station = EvChargingStation(
                 id=station_id,
                 device=device,
@@ -328,8 +339,8 @@ class EvChargingEnv(gym.Env):
                     generator=self.generator,
                     device=device,
                 ).item(),
-                travel_distribution=dist.Uniform(
-                    low=min_travel_time_to_station, high=max_travel_time_to_station + 1
+                travel_distribution=dist.Normal(
+                    loc=mean_travel_time, scale=std_travel_time
                 ),
                 min_travel_time=min_travel_time_to_station,
                 max_travel_time=max_travel_time_to_station,
@@ -343,8 +354,7 @@ class EvChargingEnv(gym.Env):
             [station.get_max_nb_cars() for station in self.stations]
         )
         padded_state_dim = (
-            1  # steps until arrival
-            + NB_STATE_PER_CAR
+            +NB_STATE_PER_CAR
             + self.max_nb_cars_routed * NB_STATE_PER_CAR
             + nb_stations * NB_STATION_ONLY_STATE_PER_STATION
         )
@@ -374,7 +384,7 @@ class EvChargingEnv(gym.Env):
         self.steps_until_next_arrival = torch.zeros((1,), device=self._device)
 
         observation = self._get_obs()
-        info = self._get_info()
+        info = {}
 
         return observation, info
 
@@ -432,19 +442,34 @@ class EvChargingEnv(gym.Env):
                 device=self._device,
             )
         state = torch.concat(
-            [self.steps_until_next_arrival]
-            + [car_to_route_state]
-            + [station.get_state() for station in self.stations]
+            [car_to_route_state] + [station.get_state() for station in self.stations]
         )
 
         return {
             "state": state,
         }
 
-    def _get_info(self):
-        return {}
+    def _get_info(
+        self,
+        station_full_penalty,
+        routed_cars_info,
+        energy_norm,
+        congestion_norm,
+        cars_mean_urgency,
+        nb_cars_who_just_got_charged,
+    ):
+        info = {
+            "received_station_full_penalty": int(station_full_penalty != 0.0),
+            "energy_norm": energy_norm,
+            "congestion_norm": congestion_norm,
+            "cars_mean_urgency": cars_mean_urgency,
+            "nb_cars_completed_charging": nb_cars_who_just_got_charged,
+        }
+        info.update(routed_cars_info)
+        return info
 
     def step(self, action: torch.Tensor):
+        self.step_count += 1
         observation, reward, terminated, truncated, info = self._step(action)
 
         if self.steps_until_next_arrival > 0 and self.advance_until_next_request:
@@ -479,11 +504,11 @@ class EvChargingEnv(gym.Env):
             self.steps_until_next_arrival -= 1
             station_full_penalty = 0.0
 
-        nb_completed = 0
+        nb_cars_who_just_got_charged = 0
         total_energy = 0.0
         for station in self.stations:
             done_i, energy_i = station.step()
-            nb_completed += done_i
+            nb_cars_who_just_got_charged += done_i
             total_energy += energy_i
 
         if self.steps_until_next_arrival <= 0:
@@ -491,46 +516,94 @@ class EvChargingEnv(gym.Env):
         else:
             self.car_to_route = None
 
-        self.step_count += 1
-
         observation = self._get_obs()
-        reward = self.compute_reward(station_full_penalty, nb_completed, total_energy)
+
+        energy_norm = self.compute_energy_norm(total_energy)
+        routed_cars_info = self.compute_routed_cars_info()
+        congestion_norm = self.compute_overall_congestion_norm(routed_cars_info)
+        cars_mean_urgency = self.compute_cars_mean_urgency()
+
+        reward = self.compute_reward(
+            station_full_penalty,
+            nb_cars_who_just_got_charged,
+            energy_norm,
+            congestion_norm,
+            cars_mean_urgency,
+        )
         terminated = False
         truncated = self.step_count >= self.max_steps
-        info = self._get_info()
+
+        info = self._get_info(
+            station_full_penalty,
+            routed_cars_info,
+            energy_norm,
+            congestion_norm,
+            cars_mean_urgency,
+            nb_cars_who_just_got_charged,
+        )
 
         return observation, reward, terminated, truncated, info
 
-    def compute_reward(
-        self, station_full_penalty: float, nb_completed: int, total_energy: float
-    ) -> float:
-        nb_cars_routed = 0
+    def compute_energy_norm(self, total_energy: float) -> float:
+        N_ch = sum(st.nb_chargers for st in self.stations)
+        v_max = max(st.charge_speed for st in self.stations)
+        energy_norm = total_energy / max(1.0, N_ch * v_max)
+        return energy_norm
+
+    def compute_routed_cars_info(self) -> dict:
+        nb_cars_traveling = 0
+        nb_cars_charging = 0
+        nb_cars_waiting = 0
+
+        for station in self.stations:
+            nb_cars_traveling += len(station.cars_traveling)
+            nb_cars_charging += len(station.cars_charging)
+            nb_cars_waiting += len(station.cars_waiting)
+
+        return {
+            "nb_cars_traveling": nb_cars_traveling,
+            "nb_cars_charging": nb_cars_charging,
+            "nb_cars_waiting": nb_cars_waiting,
+        }
+
+    def compute_overall_congestion_norm(self, routed_cars_info: dict) -> float:
+        nb_cars_traveling = routed_cars_info["nb_cars_traveling"]
+        nb_cars_charging = routed_cars_info["nb_cars_charging"]
+        nb_cars_waiting = routed_cars_info["nb_cars_waiting"]
+        nb_cars_routed = nb_cars_traveling + nb_cars_charging + nb_cars_waiting
+        congestion_norm = nb_cars_routed / self.max_nb_cars_routed
+        return congestion_norm
+
+    def compute_cars_mean_urgency(self) -> float:
         cars_urgency = []
 
         for station in self.stations:
-            nb_cars_routed += len(station.cars_traveling)
-            nb_cars_routed += len(station.cars_charging)
-            nb_cars_routed += len(station.cars_waiting)
             for car in (
                 station.cars_traveling + station.cars_charging + station.cars_waiting
             ):
                 cars_urgency.append(car.urgency)
+
         if len(cars_urgency) == 0:
             mean_urgency = 0.0
         else:
             mean_urgency = torch.mean(torch.stack(cars_urgency)).item()
 
-        congestion = nb_cars_routed / self.max_nb_cars_routed
+        return mean_urgency
 
-        N_ch = sum(st.nb_chargers for st in self.stations)
-        v_max = max(st.charge_speed for st in self.stations)
-        energy_norm = total_energy / max(1.0, N_ch * v_max)
+    def compute_reward(
+        self,
+        station_full_penalty: float,
+        nb_cars_who_just_got_charged: int,
+        energy_norm: float,
+        congestion_norm: float,
+        cars_mean_urgency: float,
+    ) -> float:
 
         reward = (
-            self.reward_congestion_weight * congestion
-            + self.reward_urgency_weight * mean_urgency
+            self.reward_congestion_weight * congestion_norm
+            + self.reward_urgency_weight * cars_mean_urgency
             + self.reward_energy_weight * energy_norm
-            + self.reward_charged_cars_weight * nb_completed
+            + self.reward_charged_cars_weight * nb_cars_who_just_got_charged
             - station_full_penalty
         )
 

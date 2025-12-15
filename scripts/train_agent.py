@@ -110,6 +110,7 @@ def main(cfg: DictConfig):
                     / f"train_step_{clip_start_step:08d}_{env_step:08d}.mp4"
                 )
                 recorder.save_segment(str(seg_path))
+                metrics_logger.log_video(str(seg_path), step=env_step)
                 recorder.reset_recording()
                 recording = False
                 clip_start_step = None
@@ -301,6 +302,7 @@ def main(cfg: DictConfig):
     if len(recorder.snaps) > 0:
         seg_path = video_output_dir / f"ev_rollout_tail_{nb_env_steps:07d}.mp4"
         recorder.save_segment(str(seg_path))
+        metrics_logger.log_video(str(seg_path), step=env_step)
         recorder.reset_recording()
 
 

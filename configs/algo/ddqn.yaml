@@ -8,7 +8,7 @@ agent:
   learning_starts: 5_000
   eps_start: 1.0
   eps_end: 0.005
-  eps_decay_steps: 500_000
+  eps_decay_steps: 350_000
   gamma: 0.99
   learning_rate: 5e-4
   memory_size: 500_000

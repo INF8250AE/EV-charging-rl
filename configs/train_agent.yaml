@@ -12,7 +12,7 @@ logging:
   verbose_log_ep_interval : 100
   save_model_step_freq: 50_000 
   step_logging_freq: 1000
-  video_start_every: 10_000
+  video_start_every: 50_000
   video_frames_per_clip: 120
   video_snapshot_every: 1
 training:

@@ -1,59 +1,24 @@
 defaults:
   - _self_
+  - algo: ddqn
+  - env: train
 
 hydra:
   run:
-    dir: outputs/${now:%Y-%m-%d_%H-%M-%S}/${experiment.type}_${env.name}
+    dir: outputs/${now:%Y-%m-%d_%H-%M-%S}/${experiment.type}
 
 experiment:
-  type: "test_all_methods"
+  type: "test_agent"
 
 logging:
-  fps: 4
-
-env:
-  name: "EvChargingEnv"
-  env_config:
-    device: "cpu"     # can be changed
-    seed: 0           # will be overridden inside loop by eval.seeds
-    nb_stations: 5
-    min_charge_speed: 1
-    max_charge_speed: 5
-    min_charge_speed_sharpness: 1
-    max_charge_speed_sharpness: 4
-    min_chargers_per_station: 2
-    max_chargers_per_station: 6
-    min_travel_time_to_station: 20
-    max_travel_time_to_station: 100
-    max_nb_cars_traveling_to_station: 10
-    max_nb_cars_waiting_at_station: 10
-    min_car_capacity: 100
-    max_car_capacity: 500
-    max_car_init_soc: 0.8
-    station_full_penalty: 10.0
-    min_steps_between_arrivals: 2
-    max_steps_between_arrivals: 5
-    max_steps: 120
+  prefix: "test"
 
 eval:
-  methods: ["ddqn", "a2c", "ga"]
-  seeds: [0, 1, 2]
-  n_eval_episodes: 20
+  seed: 753
+  n_eval_episodes: 50
 
   # Change these paths to match real file locations !!!!!
   weights:
-    ddqn:
-      "0": "trained_agent_weights_ddqn_seed0.pt"
-      "1": "trained_agent_weights_ddqn_seed1.pt"
-      "2": "trained_agent_weights_ddqn_seed2.pt"
-    a2c:
-      "0": "trained_agent_weights_a2c_seed0.pt"
-      "1": "trained_agent_weights_a2c_seed1.pt"
-      "2": "trained_agent_weights_a2c_seed2.pt"
-    ga:
-      "0": "best_genome_seed0.npy"
-      "1": "best_genome_seed1.npy"
-      "2": "best_genome_seed2.npy"
-
-output:
-  excel_name: "evaluation_per_seed_results.xlsx"
+    - "outputs/2025-12-14_22-50-46/ddqn_train_agent/weights/ddqn_500000.pt"
+    - "outputs/2025-12-14_22-50-46/ddqn_train_agent/weights/ddqn_500000.pt"
+    - "outputs/2025-12-14_22-50-46/ddqn_train_agent/weights/ddqn_500000.pt"

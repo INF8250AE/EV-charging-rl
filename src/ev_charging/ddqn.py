@@ -70,6 +70,21 @@ class DDQNAgent:
         layers.append(nn.Linear(in_dim, self.action_size))
         return nn.Sequential(*layers)
 
+    def load_pretrained_weights(self, path: str):
+        self.model.load_state_dict(torch.load(path))
+
+    def eval(self):
+        self.model.eval()
+
+    def train(self):
+        self.model.train()
+
+    def save(self, path):
+        torch.save(
+            self.model.state_dict(),
+            path,
+        )
+
     def add_to_replay_buffer(self, state, action, reward, next_state, done):
         """
         Store a transition in memory.
@@ -114,18 +129,15 @@ class DDQNAgent:
         action = torch.argmax(q_values[0])
         return action.unsqueeze(0)
 
+    @torch.inference_mode()
     def test_action(self, state):
-        """
-        Greedy action (no exploration), for evaluation.
-        """
         state = state.to(self.device)
 
         if state.dim() == 1:
             state = state.unsqueeze(0)
 
-        with torch.no_grad():
-            q_values = self.model(state)
-        action = torch.argmax(q_values[0]).item()
+        q_values = self.model(state)  # (1, A)
+        action = torch.argmax(q_values[0])
         return action
 
     def update(self, batch_size, env_step) -> dict:

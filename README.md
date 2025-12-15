@@ -26,7 +26,7 @@ export COMET_API_KEY=<YOUR_VALUE>
 export COMET_PROJECT_NAME=<YOUR_VALUE>
 export COMET_WORKSPACE=<YOUR_VALUE>
 ```  
-Then add this to your train command : `logging.use_cometml=false`
+Then add this to your train command : `logging.use_cometml=true`
 ### Stdout  
 
 Use `logging.use_cometml=false` when launching the training.  

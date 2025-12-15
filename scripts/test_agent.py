@@ -1,72 +1,133 @@
 import hydra
 import sys
-import os
+import json
 import numpy as np
-import pandas as pd
 import torch
 from tqdm import tqdm
+from pathlib import Path
 from omegaconf import DictConfig
 from loguru import logger as console_logger
-from hydra.utils import get_original_cwd
-
-from ev_charging.env import EvChargingEnv
-
-# correct these ones !!!!!
-from agents.ddqn import DDQNAgentTorch
-from agents.a2c import ActorCriticAgent
-from agents.ga import GeneticAlgorithmEV
+from hydra.utils import instantiate
+from ev_charging.metrics import Metrics
 
 
-def eval_policy(env, action_fn, n_eval_episodes: int):
+def eval_policy(
+    env, agent, n_eval_episodes: int, logging_prefix: str, seed: int
+) -> dict:
     """Runs deterministic evaluation episodes and returns per-episode returns."""
-    returns = []
-
-    for _ in tqdm(range(n_eval_episodes), desc="Eval episodes", leave=False):
-        obs, info = env.reset()
+    rollouts_metrics = Metrics()
+    for episode in tqdm(
+        range(1, n_eval_episodes + 1), desc="Test rollouts", leave=False
+    ):
+        state_dict, info = env.reset(seed=seed + episode)
+        state = state_dict["state"]
         done = False
-        ep_ret = 0.0
+        step = 1
 
-        while not done: 
-            action = torch.tensor(int(action_fn(obs)), device=env._device)
+        rollout_metrics = Metrics()
 
-            obs, reward, terminated, truncated, info = env.step(action)
+        while not done:
+            action = agent.test_action(state).to(env._device)
+            state_dict, reward, terminated, truncated, info = env.step(action)
+            state = state_dict["state"]
             done = terminated or truncated
 
-            reward = float(reward.item()) if isinstance(reward, torch.Tensor) else float(reward)
-            episode_reward += reward
+            for k, v in info.items():
+                rollout_metrics.accumulate_metric(
+                    metric_name=f"{logging_prefix}_ep_{k}_mean",
+                    metric_value=v,
+                    env_step=step,
+                    agg_fn=np.mean,
+                )
+                rollout_metrics.accumulate_metric(
+                    metric_name=f"{logging_prefix}_ep_{k}_std",
+                    metric_value=v,
+                    env_step=step,
+                    agg_fn=np.std,
+                )
+                rollout_metrics.accumulate_metric(
+                    metric_name=f"{logging_prefix}_ep_{k}_min",
+                    metric_value=v,
+                    env_step=step,
+                    agg_fn=np.min,
+                )
+                rollout_metrics.accumulate_metric(
+                    metric_name=f"{logging_prefix}_ep_{k}_max",
+                    metric_value=v,
+                    env_step=step,
+                    agg_fn=np.max,
+                )
+                rollout_metrics.accumulate_metric(
+                    metric_name=f"{logging_prefix}_ep_{k}_sum",
+                    metric_value=v,
+                    env_step=step,
+                    agg_fn=np.sum,
+                )
 
-        returns.append(episode_reward)
+            rollout_metrics.accumulate_metric(
+                metric_name=f"{logging_prefix}_ep_return",
+                metric_value=reward.item(),
+                env_step=step,
+                agg_fn=np.sum,
+            )
+            rollout_metrics.accumulate_metric(
+                metric_name=f"{logging_prefix}_ep_reward_std",
+                metric_value=reward.item(),
+                env_step=step,
+                agg_fn=np.std,
+            )
+            rollout_metrics.accumulate_metric(
+                metric_name=f"{logging_prefix}_ep_reward_mean",
+                metric_value=reward.item(),
+                env_step=step,
+                agg_fn=np.mean,
+            )
+            rollout_metrics.accumulate_metric(
+                metric_name=f"{logging_prefix}_ep_reward_min",
+                metric_value=reward.item(),
+                env_step=step,
+                agg_fn=np.min,
+            )
+            rollout_metrics.accumulate_metric(
+                metric_name=f"{logging_prefix}_ep_reward_max",
+                metric_value=reward.item(),
+                env_step=step,
+                agg_fn=np.max,
+            )
+            rollout_metrics.accumulate_metric(
+                metric_name=f"{logging_prefix}_ep_action_median",
+                metric_value=action.item(),
+                env_step=step,
+                agg_fn=np.median,
+            )
+            rollout_metrics.accumulate_metric(
+                metric_name=f"{logging_prefix}_ep_action_std",
+                metric_value=action.item(),
+                env_step=step,
+                agg_fn=np.std,
+            )
+            rollout_metrics.accumulate_metric(
+                metric_name=f"{logging_prefix}_ep_action_min",
+                metric_value=action.item(),
+                env_step=step,
+                agg_fn=np.min,
+            )
+            rollout_metrics.accumulate_metric(
+                metric_name=f"{logging_prefix}_ep_action_max",
+                metric_value=action.item(),
+                env_step=step,
+                agg_fn=np.max,
+            )
+            step += 1
 
-    return torch.tensor(returns, dtype=torch.float32)
+        rollout_metrics = rollout_metrics.compute_aggregated_metrics()
+        for k, v in rollout_metrics.items():
+            rollouts_metrics.accumulate_metric(
+                metric_name=k, metric_value=v["value"], env_step=episode, agg_fn=np.mean
+            )
 
+    return rollouts_metrics.compute_aggregated_metrics()
 
-def make_ddqn_action_fn(agent, device):
-    """DDQN evaluation uses greedy Q argmax."""
-    def _act(obs):
-        state = obs["state"]
-        if not isinstance(state, torch.Tensor):
-            state = torch.tensor(state, dtype=torch.float32)
-        state = state.to(device)
-        return agent.test_action(state)
-    return _act
-
-
-def make_a2c_action_fn(agent, device):
-    """A2C evaluation uses argmax over actor probabilities."""
-    def _act(obs):
-        state = obs["state"]
-        if not isinstance(state, torch.Tensor):
-            state = torch.tensor(state, dtype=torch.float32)
-        state = state.to(device)
-        return agent.greedy_action(state)
-    return _act
-
-
-def make_ga_action_fn(genome, env):
-    """GA evaluation uses the heuristic scoring rule (deterministic)."""
-    def _act(obs):
-        return heuristic_action_from_genome(genome, env, obs)
-    return _act
 
 @hydra.main(version_base=None, config_path="../configs/", config_name="test_agent")
 def main(cfg: DictConfig):
@@ -74,97 +135,56 @@ def main(cfg: DictConfig):
     console_logger.info(f"PyTorch : {torch.__version__}")
     console_logger.info(f"PyTorch CUDA : {torch.version.cuda}")
 
-    env_device = str(cfg["env"]["env_config"]["device"])
-    console_logger.info(f"Env Device: {env_device}")
+    agent_name = cfg["algo"]["name"]
 
-    methods = list(cfg["eval"]["methods"])                 # ["ddqn","a2c","ga"]
-    seeds = list(cfg["eval"]["seeds"])                     # [0,1,2]
+    seed = cfg["eval"]["seed"]
+
+    env = instantiate(cfg["env"])(seed=seed)
+
+    state_size = env.observation_space["state"].shape[0]
+    action_size = env.action_space.n
+
     n_eval_episodes = int(cfg["eval"]["n_eval_episodes"])
-    weights_cfg = cfg["eval"]["weights"]
+    weights_paths = cfg["eval"]["weights"]
 
-    results = {}  # results[method][seed] = torch tensor of returns
+    test_metrics = Metrics()
+    logging_prefix = cfg["logging"]["prefix"]
 
-    for method in methods:
-        results[method] = {}
+    hydra_cfg = hydra.core.hydra_config.HydraConfig.get()
+    output_dir = Path(hydra_cfg["runtime"]["output_dir"]) / Path("test_metrics/")
+    output_dir.mkdir()
 
-        for seed in seeds:
-            console_logger.info(f"Evaluating method={method}, seed={seed}")
+    for i, weights_path in tqdm(enumerate(weights_paths), desc="Model Weights"):
+        console_logger.info(f"Evaluating method={agent_name}, Model weights={i}")
 
-            # fresh env per (method, seed) for consistent seeded initialization
-            env = EvChargingEnv(**cfg["env"]["env_config"], seed=int(seed))
+        agent = instantiate(cfg["algo"]["agent"])(
+            state_size=state_size, action_size=action_size, seed=seed
+        )
+        agent.load_pretrained_weights(weights_path)
+        agent.eval()
 
-            if method == "ddqn":
-                weights_path = str(weights_cfg["ddqn"][str(seed)])
+        rollouts_metrics = eval_policy(
+            env,
+            agent,
+            n_eval_episodes=n_eval_episodes,
+            logging_prefix=logging_prefix,
+            seed=seed,
+        )
 
-                state_size = env.observation_space["state"].shape[0]
-                action_size = env.action_space.n
-
-                agent = DDQNAgentTorch(state_size, action_size, device=env_device)
-                agent.model.load_state_dict(torch.load(weights_path, map_location=agent.device))
-                agent.model.eval()
-
-                action_fn = make_ddqn_action_fn(agent, agent.device)
-
-            elif method == "a2c":
-                weights_path = str(weights_cfg["a2c"][str(seed)])
-
-                state_size = env.observation_space["state"].shape[0]
-                action_size = env.action_space.n
-
-                agent = ActorCriticAgent(state_size, action_size)
-                ckpt = torch.load(weights_path, map_location=agent.device)
-
-                # expected format: {"actor": actor_state_dict, "critic": critic_state_dict} !!!!!
-                agent.actor.load_state_dict(ckpt["actor"])
-                agent.critic.load_state_dict(ckpt["critic"])
-                agent.actor.eval()
-                agent.critic.eval()
-
-                action_fn = make_a2c_action_fn(agent, agent.device)
-
-            elif method == "ga":
-                genome_path = str(weights_cfg["ga"][str(seed)])
-                genome = np.load(genome_path)
-
-                action_fn = make_ga_action_fn(genome, env)
-
-            else:
-                raise ValueError(f"Unknown method: {method}")
-
-            episode_returns = eval_policy(env, action_fn, n_eval_episodes=n_eval_episodes)
-            results[method][seed] = episode_returns
-
-            console_logger.info(
-                f"{method} seed={seed} -> mean={episode_returns.mean().item():.3f}, std={episode_returns.std().item():.3f}"
+        for k, v in rollouts_metrics.items():
+            test_metrics.accumulate_metric(
+                metric_name=k, metric_value=v["value"], env_step=i, agg_fn=np.mean
             )
 
-    # Comparison DataFrames (per-seed & method)
-    rows = []
-    for method in methods:
-        for seed in seeds:
-            results = results[method][seed].cpu().numpy()
-            rows.append({
-                "method": method,
-                "seed": int(seed),
-                "mean_return": float(np.mean(results)),
-                "std_return": float(np.std(results)),
-                "n_eval_episodes": int(len(results)),
-            })
-    df_seed = pd.DataFrame(rows).sort_values(["method", "seed"])
+    aggregated_test_metrics = test_metrics.compute_aggregated_metrics()
 
-    # Save CSV
-    out_dir = get_original_cwd()
-    excel_path = os.path.join(out_dir, str(cfg["output"]["excel_name"]))
+    with open(
+        output_dir / Path(f"{agent_name}_{logging_prefix}_metrics.json"),
+        "w",
+    ) as f:
+        json.dump(aggregated_test_metrics, f)
 
-    df_seed.to_excel(excel_path, index=False)
-
-    console_logger.info(f"Saved per-seed Excel to: {excel_path}")
-    
-
-        # recorder.record_step(prev_obs, obs, action, reward, done)
-
-    # save metrics
-    # recorder.save()
+    console_logger.info(f"Saved test metrics to : {str(output_dir)}")
 
 
 if __name__ == "__main__":

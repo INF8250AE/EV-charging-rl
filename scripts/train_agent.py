@@ -24,6 +24,7 @@ def main(cfg: DictConfig):
     console_logger.info(f"Training Seed : {train_seed}")
 
     env = instantiate(cfg["env"])(seed=train_seed)
+    env.reset(seed=train_seed)
     state_size = env.observation_space["state"].shape[0]
     console_logger.info(f"State size: {state_size}")
     action_size = env.action_space.n
@@ -47,6 +48,7 @@ def main(cfg: DictConfig):
     agent = instantiate(cfg["algo"]["agent"])(
         state_size=state_size, action_size=action_size, seed=train_seed
     )
+    agent.train()
     console_logger.info(f"Agent: {agent_name}")
 
     nb_env_steps = cfg["training"]["nb_env_steps"]
@@ -191,28 +193,10 @@ def main(cfg: DictConfig):
             agg_fn=np.sum,
         )
         train_episode_metrics.accumulate_metric(
-            metric_name="train_ep_return_std",
+            metric_name="train_ep_reward_std",
             metric_value=reward.item(),
             env_step=env_step,
             agg_fn=np.std,
-        )
-        train_episode_metrics.accumulate_metric(
-            metric_name="train_ep_return_min",
-            metric_value=reward.item(),
-            env_step=env_step,
-            agg_fn=np.min,
-        )
-        train_episode_metrics.accumulate_metric(
-            metric_name="train_ep_return_max",
-            metric_value=reward.item(),
-            env_step=env_step,
-            agg_fn=np.max,
-        )
-        train_episode_metrics.accumulate_metric(
-            metric_name="train_ep_reward_mean",
-            metric_value=reward.item(),
-            env_step=env_step,
-            agg_fn=np.mean,
         )
         train_episode_metrics.accumulate_metric(
             metric_name="train_ep_reward_min",
@@ -225,6 +209,12 @@ def main(cfg: DictConfig):
             metric_value=reward.item(),
             env_step=env_step,
             agg_fn=np.max,
+        )
+        train_episode_metrics.accumulate_metric(
+            metric_name="train_ep_reward_mean",
+            metric_value=reward.item(),
+            env_step=env_step,
+            agg_fn=np.mean,
         )
         train_episode_metrics.accumulate_metric(
             metric_name="train_ep_action_median",
@@ -260,10 +250,7 @@ def main(cfg: DictConfig):
         agent.on_train_step_done(env_step)
 
         if env_step % save_model_step_freq == 0:
-            torch.save(
-                agent.model.state_dict(),
-                output_weights_folder / Path(f"{agent_name}_{env_step}.pt"),
-            )
+            agent.save(output_weights_folder / Path(f"{agent_name}_{env_step}.pt"))
 
         step_metrics = train_step_metrics.data
 

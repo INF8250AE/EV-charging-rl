@@ -156,7 +156,7 @@ class ActorCriticAgent:
 
         with torch.no_grad():
             logits = self.actor(state)  # (1, action_size)
-            return int(torch.argmax(logits[0]).item())
+            return torch.argmax(logits[0])
 
     def update(self, state, reward, next_state, done) -> dict:
 
@@ -243,7 +243,7 @@ class ActorCriticAgent:
     def save(self, path):
         torch.save(self.state_dict(), path)
 
-    def load(self, path):
+    def load_pretrained_weights(self, path):
         ckpt = torch.load(path, map_location=self.device)
         self.load_state_dict(ckpt)
 

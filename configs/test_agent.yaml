@@ -22,5 +22,8 @@ eval:
   test_seeds: [100, 101, 102, 103, 104, 105, 106, 107, 108, 109]
   n_eval_episodes: 100
   weights:
-    - "weights/ddqn/ddqn_seed_0_step_500000.pt"
-    - "weights/ddqn/ddqn_seed_0_step_500000.pt"
+    - "weights/a2c/a2c_seed_0_step_500000.pt"
+    - "weights/a2c/a2c_seed_1_step_500000.pt"
+    - "weights/a2c/a2c_seed_2_step_500000.pt"
+    - "weights/a2c/a2c_seed_3_step_500000.pt"
+    - "weights/a2c/a2c_seed_4_step_500000.pt"

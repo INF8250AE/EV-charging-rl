@@ -22,6 +22,7 @@ class DDQNAgent:
         device: str,
         model_hidden_dim: int,
         model_nb_layers: int,
+        train_batch_size: int,
     ):
         self.eps_start = eps_start
         self.eps_end = eps_end
@@ -40,6 +41,7 @@ class DDQNAgent:
         self.model_hidden_dim = model_hidden_dim
         self.model_nb_layers = model_nb_layers
         self.reward_rms = RunningMeanStd()
+        self.train_batch_size = train_batch_size
 
         if device is None:
             self.device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -140,14 +142,14 @@ class DDQNAgent:
         action = torch.argmax(q_values[0])
         return action
 
-    def update(self, batch_size, env_step) -> dict:
+    def update(self, env_step) -> dict:
         """
         Perform update using a minibatch from memory.
         """
-        if len(self.memory) < batch_size or env_step < self.learning_starts:
+        if len(self.memory) < self.train_batch_size or env_step < self.learning_starts:
             return {}
         indices = torch.randperm(len(self.memory), generator=self.generator)[
-            :batch_size
+            : self.train_batch_size
         ]
 
         minibatch = [self.memory[i] for i in indices.tolist()]
@@ -215,7 +217,8 @@ class DDQNAgent:
         """
         self.target_model.load_state_dict(self.model.state_dict())
 
-    def on_env_transition(self, state, action, reward, next_state, done, train_batch_size, env_step) -> dict:
-        self.add_to_replay_buffer(state, action, reward, next_state, done)    
-        return self.update(batch_size=train_batch_size, env_step=env_step)
-    
+    def on_env_transition(
+        self, state, action, reward, next_state, done, env_step
+    ) -> dict:
+        self.add_to_replay_buffer(state, action, reward, next_state, done)
+        return self.update(env_step=env_step)

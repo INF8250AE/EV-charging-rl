@@ -14,3 +14,4 @@ agent:
   memory_size: 500_000
   model_hidden_dim: 64
   model_nb_layers: 3
+  train_batch_size: 64

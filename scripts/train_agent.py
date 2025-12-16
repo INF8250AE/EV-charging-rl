@@ -1,8 +1,8 @@
-# import comet_ml
 import hydra
 import sys
 import torch
 import numpy as np
+import random
 from pathlib import Path
 from tqdm import tqdm
 from hydra.utils import instantiate
@@ -23,6 +23,10 @@ def main(cfg: DictConfig):
 
     train_seed = cfg["training"]["seed"]
     console_logger.info(f"Training Seed : {train_seed}")
+    random.seed(train_seed)
+    torch.manual_seed(train_seed)
+    np.random.seed(train_seed)
+    torch.cuda.manual_seed_all(train_seed)
 
     env = instantiate(cfg["env"])(seed=train_seed)
     env.reset(seed=train_seed)
@@ -53,7 +57,6 @@ def main(cfg: DictConfig):
     console_logger.info(f"Agent: {agent_name}")
 
     nb_env_steps = cfg["training"]["nb_env_steps"]
-    train_batch_size = cfg["training"]["batch_size"]
 
     train_episode_metrics = Metrics()
     train_step_metrics = Metrics()
@@ -80,6 +83,9 @@ def main(cfg: DictConfig):
     metrics_logger.log_code("./src/")
     metrics_logger.log_code("./scripts/")
     metrics_logger.log_code("./configs/")
+    metrics_logger.log_parameters(
+        {"state_size": state_size, "action_size": action_size}
+    )
     verbose_log_ep_interval = cfg["logging"]["verbose_log_ep_interval"]
     step_logging_freq = cfg["logging"]["step_logging_freq"]
     save_model_step_freq = cfg["logging"]["save_model_step_freq"]
@@ -88,37 +94,49 @@ def main(cfg: DictConfig):
     episode_count = 0
     video_start_every = cfg["logging"]["video_start_every"]
     video_frames_per_clip = cfg["logging"]["video_frames_per_clip"]
-    recording = False
-    frames_left = 0
-    clip_start_step = None
+    recording = True
+    frames_left = video_frames_per_clip
+    clip_start_step = 1
+    clip_end_step = video_frames_per_clip
+    next_milestone_end = video_start_every
 
     for env_step in pbar:
-        if (env_step % video_start_every) == 0 and not recording or env_step == 1:
+        start_step = clip_end_step - video_frames_per_clip + 1
+        if (not recording) and (env_step == start_step) and (start_step >= 1):
             recording = True
             frames_left = video_frames_per_clip
             clip_start_step = env_step
 
-        action = agent.action(state)   # returns action only (with cache)
+        action = agent.action(state)
         next_state_dict, reward, terminated, truncated, info = env.step(action)
         next_state = next_state_dict["state"]
         done = terminated or truncated
-        train_logs = agent.on_env_transition(state, action, reward, next_state, done, train_batch_size, env_step) 
+        train_logs = agent.on_env_transition(
+            state, action, reward, next_state, done, env_step
+        )
         state = next_state
 
-
         if recording:
-            recorder.record_step(action=action, reward=reward, done=done)
+            recorder.record_step(action=action, reward=reward, done=done, info=info)
             frames_left -= 1
 
-            if frames_left <= 0:
+            if env_step == clip_end_step or frames_left <= 0:
                 seg_path = (
-                    video_output_dir / f"train_step_{clip_start_step:08d}_{env_step:08d}.mp4"
+                    video_output_dir
+                    / f"train_step_{clip_start_step:08d}_{env_step:08d}.mp4"
                 )
                 recorder.save_segment(str(seg_path))
                 metrics_logger.log_video(str(seg_path), step=env_step)
                 recorder.reset_recording()
                 recording = False
+                frames_left = 0
                 clip_start_step = None
+
+                if clip_end_step == video_frames_per_clip:
+                    clip_end_step = next_milestone_end
+                else:
+                    next_milestone_end += video_start_every
+                    clip_end_step = next_milestone_end
 
         if env_step % step_logging_freq == 0:
             if train_logs.get("train_loss", None) is not None:
@@ -249,7 +267,6 @@ def main(cfg: DictConfig):
         if env_step % save_model_step_freq == 0:
             agent.save(output_weights_folder / Path(f"{agent_name}_{env_step}.pt"))
 
-
         step_metrics = train_step_metrics.data
 
         for metric_name in step_metrics.keys():
@@ -289,6 +306,7 @@ def main(cfg: DictConfig):
         recorder.save_segment(str(seg_path))
         metrics_logger.log_video(str(seg_path), step=env_step)
         recorder.reset_recording()
+
 
 if __name__ == "__main__":
     main()

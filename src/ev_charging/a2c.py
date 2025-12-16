@@ -7,7 +7,9 @@ from ev_charging.stats import RunningMeanStd
 
 
 class ActorNet(nn.Module):
-    def __init__(self, state_size: int, action_size: int, hidden_dim: int, nb_layers: int):
+    def __init__(
+        self, state_size: int, action_size: int, hidden_dim: int, nb_layers: int
+    ):
         super().__init__()
         layers = []
         L = max(1, nb_layers)
@@ -43,15 +45,16 @@ class CriticNet(nn.Module):
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         return self.net(x)  # (B, 1)
 
+
 class ActorCriticAgent:
     """
-        A2C update (one-step TD):
-          td_target = r + gamma * V(next_state) * (1 - done)
-          advantage  = td_target - V(state)                 # advantage = td_error
+    A2C update (one-step TD):
+      td_target = r + gamma * V(next_state) * (1 - done)
+      advantage  = td_target - V(state)                 # advantage = td_error
 
-        actor_loss  = -log π(a|s) * td_error.detach()
-        actor_loss ​ = −logπ(a∣s)⋅advantage.detach() - entropy_coef * entropy ---> when we consider entropy term
-        critic_loss = td_error**2 -->  HERE:  critic_loss = Huber( V(s), td_target )
+    actor_loss  = -log π(a|s) * td_error.detach()
+    actor_loss ​ = −logπ(a∣s)⋅advantage.detach() - entropy_coef * entropy ---> when we consider entropy term
+    critic_loss = td_error**2 -->  HERE:  critic_loss = Huber( V(s), td_target )
     """
 
     def __init__(
@@ -66,8 +69,9 @@ class ActorCriticAgent:
         model_hidden_dim: int,
         model_nb_layers: int,
         entropy_coef: float = 0.0,
-        normalize_rewards: bool = False):
-        
+        normalize_rewards: bool = False,
+    ):
+
         self.state_size = state_size
         self.action_size = action_size
         self.seed = seed
@@ -88,8 +92,12 @@ class ActorCriticAgent:
             self.device = torch.device(device)
 
         # Build actor and critic neural networks
-        self.actor = ActorNet(state_size, action_size, model_hidden_dim, model_nb_layers).to(self.device)
-        self.critic = CriticNet(state_size, model_hidden_dim, model_nb_layers).to(self.device)
+        self.actor = ActorNet(
+            state_size, action_size, model_hidden_dim, model_nb_layers
+        ).to(self.device)
+        self.critic = CriticNet(state_size, model_hidden_dim, model_nb_layers).to(
+            self.device
+        )
 
         self.actor_optimizer = optim.Adam(self.actor.parameters(), lr=actor_lr)
         self.critic_optimizer = optim.Adam(self.critic.parameters(), lr=critic_lr)
@@ -114,7 +122,6 @@ class ActorCriticAgent:
         self.actor.eval()
         self.critic.eval()
 
-
     def action(self, state: torch.Tensor):
         """
         Stochastic action for training.
@@ -125,12 +132,12 @@ class ActorCriticAgent:
         if state.dim() == 1:
             state = state.unsqueeze(0)  # (1, state_size)
 
-        logits = self.actor(state)              # (1, action_size)
+        logits = self.actor(state)  # (1, action_size)
         dist = Categorical(logits=logits)
 
         action = dist.sample()  # (1,)
-        log_prob = dist.log_prob(action)                # (1,)
-        entropy = dist.entropy()                        # (1,)
+        log_prob = dist.log_prob(action)  # (1,)
+        entropy = dist.entropy()  # (1,)
 
         # cache for update()
         self._last_action = action
@@ -180,7 +187,9 @@ class ActorCriticAgent:
             r = float(self.reward_rms.normalize(r))
 
         reward_t = torch.tensor([r], dtype=torch.float32, device=self.device)  # (1,)
-        done_t = torch.tensor([float(done)], dtype=torch.float32, device=self.device)  # (1,)
+        done_t = torch.tensor(
+            [float(done)], dtype=torch.float32, device=self.device
+        )  # (1,)
 
         # Critic values
         value = self.critic(state).squeeze(1)  # (1,)
@@ -190,8 +199,8 @@ class ActorCriticAgent:
             td_target = reward_t + (1.0 - done_t) * self.gamma * next_value  # (1,)
 
         advantage = td_target - value  # (1,)
-        advantage = (advantage - advantage.mean()) / (advantage.std() + 1e-8)
-
+        if advantage.numel() > 1:
+            advantage = (advantage - advantage.mean()) / (advantage.std() + 1e-8)
 
         # critic update
         critic_loss = self.critic_criterion(value, td_target)
@@ -244,9 +253,8 @@ class ActorCriticAgent:
         """
         self.actor.load_state_dict(ckpt["actor"])
         self.critic.load_state_dict(ckpt["critic"])
-        
-    def on_env_transition(self, state, action, reward, next_state, done, train_batch_size, env_step) -> dict:
-        return self.update(state, reward, next_state, done)
-    
 
-    
+    def on_env_transition(
+        self, state, action, reward, next_state, done, env_step
+    ) -> dict:
+        return self.update(state, reward, next_state, done)

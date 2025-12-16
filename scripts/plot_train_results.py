@@ -16,7 +16,7 @@ X_LABEL = "Training Steps"
 
 SMOOTHING_WEIGHT = 0.9
 
-METHODS_TO_PLOT = ["a2c", "ddqn"]  # "ga", "random"]
+METHODS_TO_PLOT = ["ga"]  # , "random"]
 METHOD_COLORS = {"a2c": "#1f77b4", "ddqn": "#d62728", "ga": "#2ca02c", "random": "gray"}
 METHOD_DISPLAY_NAMES = {
     "a2c": "A2C",

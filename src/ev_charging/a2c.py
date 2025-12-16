@@ -190,6 +190,8 @@ class ActorCriticAgent:
             td_target = reward_t + (1.0 - done_t) * self.gamma * next_value  # (1,)
 
         advantage = td_target - value  # (1,)
+        advantage = (advantage - advantage.mean()) / (advantage.std() + 1e-8)
+
 
         # critic update
         critic_loss = self.critic_criterion(value, td_target)
@@ -219,6 +221,10 @@ class ActorCriticAgent:
             "advantage_mean": float(advantage.mean().item()),
         }
 
+    def on_train_step_done(self, env_step: int):
+        # decay entropy coefficient
+        self.entropy_coef = max(0.0001, self.entropy_coef * 0.99999)
+
     def state_dict(self):
         return {
             "actor": self.actor.state_dict(),
@@ -242,7 +248,5 @@ class ActorCriticAgent:
     def on_env_transition(self, state, action, reward, next_state, done, train_batch_size, env_step) -> dict:
         return self.update(state, reward, next_state, done)
     
-    def on_train_step_done(self, env_step: int):
-        pass
 
     

@@ -59,7 +59,7 @@ def eval_policy_get_mean_return(
     for episode in tqdm(
         range(1, n_eval_episodes + 1), desc=f"  Env {env_seed_id} episodes", leave=False
     ):
-        record_video = episode <= num_video_rollouts
+        record_video = episode <= num_video_rollouts and agent_id == 0
         video_path = (
             video_output_dir
             / f"{logging_prefix}_agent_{agent_id}_env_{env_seed_id}_ep_{episode}.mp4"
@@ -148,16 +148,16 @@ def main(cfg: DictConfig):
     console_logger.info(f"Python: {sys.version}")
     console_logger.info(f"PyTorch: {torch.__version__}")
 
-    global_seed = cfg["eval"]["global_seed"]
+    global_seed = int(cfg["eval"]["global_seed"])
     random.seed(global_seed)
     np.random.seed(global_seed)
     torch.manual_seed(global_seed)
     if torch.cuda.is_available():
         torch.cuda.manual_seed_all(global_seed)
 
-    agent_name = cfg["algo"]["name"]
-    test_env_seeds = cfg["eval"]["test_seeds"]
-    weights_paths = cfg["eval"]["weights"]
+    agent_name = str(cfg["algo"]["name"])
+    test_env_seeds = list(cfg["eval"]["test_seeds"])
+    weights_paths = list(cfg["eval"]["weights"])
     n_eval_episodes = int(cfg["eval"]["n_eval_episodes"])
 
     num_runs = len(weights_paths)  # N
@@ -227,11 +227,11 @@ def main(cfg: DictConfig):
                 env=env,
                 agent=agent,
                 n_eval_episodes=n_eval_episodes,
-                logging_prefix=cfg["logging"]["prefix"],
+                logging_prefix=str(cfg["logging"]["prefix"]),
                 base_seed=env_seed,
-                num_video_rollouts=cfg["logging"]["video_rollouts"],
+                num_video_rollouts=int(cfg["logging"]["video_rollouts"]),
                 video_output_dir=video_output_dir,
-                video_fps=cfg["logging"]["video_fps"],
+                video_fps=int(cfg["logging"]["video_fps"]),
                 agent_id=run_idx,
                 env_seed_id=env_seed,
             )

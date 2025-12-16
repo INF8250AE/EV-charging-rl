@@ -12,7 +12,7 @@ experiment:
 
 logging:
   prefix: "test"
-  video_rollouts: 1 
+  video_rollouts: 1
   video_fps: 4
 
 eval:
@@ -22,8 +22,5 @@ eval:
   test_seeds: [100, 101, 102, 103, 104, 105, 106, 107, 108, 109]
   n_eval_episodes: 100
   weights:
-    - "weights/ddqn/ddqn_seed_0_stepp_500000.pt"
-    - "weights/ddqn/ddqn_seed_1_stepp_500000.pt"
-    - "weights/ddqn/ddqn_seed_2_stepp_500000.pt"
-    - "weights/ddqn/ddqn_seed_3_stepp_500000.pt"
-    - "weights/ddqn/ddqn_seed_4_stepp_500000.pt"
+    - "weights/ddqn/ddqn_seed_0_step_500000.pt"
+    - "weights/ddqn/ddqn_seed_0_step_500000.pt"

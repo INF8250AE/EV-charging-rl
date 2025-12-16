@@ -12,15 +12,18 @@ experiment:
 
 logging:
   prefix: "test"
-  video_rollouts: 2
+  video_rollouts: 1 
   video_fps: 4
 
 eval:
-  seed: 753
+  # Global seed for python/torch random generators (not the env)
+  global_seed: 753
+  # seeds for different env layouts
+  test_seeds: [100, 101, 102, 103, 104, 105, 106, 107, 108, 109]
   n_eval_episodes: 100
-
-  # Change these paths to match real file locations !!!!!
   weights:
-    - "outputs/2025-12-14_22-50-46/ddqn_train_agent/weights/ddqn_500000.pt"
-    - "outputs/2025-12-14_22-50-46/ddqn_train_agent/weights/ddqn_500000.pt"
-    - "outputs/2025-12-14_22-50-46/ddqn_train_agent/weights/ddqn_500000.pt"
+    - "weights/ddqn/ddqn_seed_0_stepp_500000.pt"
+    - "weights/ddqn/ddqn_seed_1_stepp_500000.pt"
+    - "weights/ddqn/ddqn_seed_2_stepp_500000.pt"
+    - "weights/ddqn/ddqn_seed_3_stepp_500000.pt"
+    - "weights/ddqn/ddqn_seed_4_stepp_500000.pt"

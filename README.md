@@ -35,15 +35,15 @@ Use `logging.use_cometml=false` when launching the training (eg: `uv run scripts
 ```bash
 uv run scripts/train_agent.py algo=ddqn
 ```
-You can change the training seed in the config or pass `training.seed=0` for instance.  
-We use multiple training seeds to report our results.
+You can change the training seed in the config or pass `training.seed=0` like:
+uv run scripts/train_agent.py algo=ddqn training.seed=0
+We use multiple training seeds [0, 1, 2, 3, 4] to report our results.
 
 ## A2C
 ```bash
 uv run scripts/train_agent.py algo=a2c
 ```
-You can change the training seed in the config or pass `training.seed=0` for instance.  
-We use multiple training seeds to report our results.
+We add seeds same as DDQN.
 
 ## Genetic Algorithm
 ```bash

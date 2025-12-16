@@ -18,4 +18,4 @@ logging:
   video_snapshot_every: 1
 training:
   nb_env_steps: 500_000
-  seed: 42
+  seed: 0

@@ -1,5 +1,5 @@
 import torch
-import numpy as np  # Added for metric calculation in detailed evaluation
+import numpy as np
 from ev_charging.env import NB_STATE_PER_CAR
 
 
@@ -35,18 +35,12 @@ class GeneticAlgorithmEV:
         self.n_elite = None  # Initialized in initialize_training
 
     def _init_population(self):
-        """Initialize random population"""
         return (
             torch.rand(self.population_size, self.genome_dim, generator=self.generator)
             * 2.0
         ) - 1.0
 
     def heuristic_action_from_genome(self, genome, env, state):
-        """
-        Select action based on genome weights
-        genome: torch.Tensor of shape (6,)
-        state: torch.Tensor from env
-        """
         # Ensure state is a tensor
         if not isinstance(state, torch.Tensor):
             state = torch.tensor(state)
@@ -60,11 +54,11 @@ class GeneticAlgorithmEV:
         w0, w1, w2, w3, w4, w5 = genome
 
         for station in env.stations:
-            station_state = station.get_state()  # Already a tensor
+            station_state = station.get_state()
 
             charge_speed_norm = station_state[0]
-            nb_free_chargers_norm = station_state[2]
-            nb_cars_waiting_norm = station_state[5]
+            nb_free_chargers_norm = station_state[3]
+            nb_cars_waiting_norm = station_state[6]
 
             x1 = charge_speed_norm
             x2 = nb_free_chargers_norm
@@ -93,18 +87,15 @@ class GeneticAlgorithmEV:
         return torch.tensor(action_idx)
 
     def set_env(self, env):
-        """Set environment reference for testing"""
         self.env = env
 
     def load_pretrained_weights(self, weights_path):
-        """Load the trained genome from file"""
         checkpoint = torch.load(weights_path, weights_only=True)
         self.best_genome = checkpoint["best_genome"]
         self.best_fitness = checkpoint.get("best_fitness", float("-inf"))
         print(f"Loaded genome with fitness: {self.best_fitness:.3f}")
 
     def save(self, path):
-        """Save the trained genome to file"""
         torch.save(
             {
                 "best_genome": self.best_genome,
@@ -121,14 +112,10 @@ class GeneticAlgorithmEV:
         pass
 
     def evaluate_genome(self, genome, env, n_eval_episodes=3):
-        """
-        Evaluate a single genome's fitness.
-        Returns: mean_return, all_returns, all_rewards, all_actions, all_infos
-        """
         all_returns = []
         all_rewards = []
         all_actions = []
-        all_infos = []  # New list to collect info dicts
+        all_infos = []
 
         for ep in range(n_eval_episodes):
             obs, info = env.reset()
@@ -150,7 +137,7 @@ class GeneticAlgorithmEV:
 
                 episode_rewards.append(reward_val)
                 episode_actions.append(action_idx)
-                all_infos.append(info)  # Collect the info dict for this step!
+                all_infos.append(info)
 
             all_returns.append(episode_return)
             all_rewards.extend(episode_rewards)
@@ -167,10 +154,8 @@ class GeneticAlgorithmEV:
         )
 
     def _evaluate_population(self, population, env):
-        """Evaluate all genomes in population, only returning mean fitness."""
         fitnesses = []
         for genome in population:
-            # Update the unpacking to ignore the three extra return values (rewards, actions, infos)
             fit, _, _, _, _ = self.evaluate_genome(
                 genome, env, n_eval_episodes=self.n_eval_episodes
             )
@@ -178,13 +163,11 @@ class GeneticAlgorithmEV:
         return torch.tensor(fitnesses)
 
     def initialize_training(self, env):
-        """Initialize population and environment reference before starting the loop."""
         self.env = env
         self.population = self._init_population()
         self.n_elite = max(1, int(self.elite_frac * self.population_size))
 
     def run_generation(self):
-        """Runs one generation of evolution (Evaluation, Selection, Crossover, Mutation)."""
         if self.env is None or self.population is None:
             raise ValueError("Must call initialize_training(env) first.")
 
@@ -206,7 +189,6 @@ class GeneticAlgorithmEV:
         elite_indices = torch.argsort(fitnesses)[-self.n_elite :]
         elites = self.population[elite_indices]
 
-        # Build next generation
         new_pop = [elites[-1]]  # Keep best
 
         while len(new_pop) < self.population_size:

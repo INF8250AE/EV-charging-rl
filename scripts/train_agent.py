@@ -265,7 +265,10 @@ def main(cfg: DictConfig):
         agent.on_train_step_done(env_step)
 
         if env_step % save_model_step_freq == 0:
-            agent.save(output_weights_folder / Path(f"{agent_name}_{env_step}.pt"))
+            agent.save(
+                output_weights_folder
+                / Path(f"{agent_name}_seed_{train_seed}_step_{env_step}.pt")
+            )
 
         step_metrics = train_step_metrics.data
 

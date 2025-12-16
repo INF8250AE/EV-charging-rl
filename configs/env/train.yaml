@@ -17,7 +17,7 @@ max_mean_travel_time_to_station: 8
 min_std_travel_time_to_station: 0.25
 max_std_travel_time_to_station: 3.0
 max_nb_cars_traveling_to_station: 4
-cap_max_cars_traveling: 16
+cap_max_cars_traveling: 12
 max_nb_cars_waiting_at_station: 2
 cap_max_cars_waiting: 8
 min_car_capacity: 300

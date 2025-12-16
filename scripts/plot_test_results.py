@@ -46,28 +46,28 @@ METRICS_CONFIG = {
             "iqm",
         ],
     },
-    # "nb_cars_waiting": {
-    #     "title": "Test Episode Mean Nb Cars Waiting (\u2193 better)",
-    #     "ylabel": "IQM Episode Mean Nb Cars Waiting",
-    #     "json_path": [
-    #         "aggregate_metrics",
-    #         "detailed_info_metrics",
-    #         "nb_cars_waiting",
-    #         "mean",
-    #         "iqm",
-    #     ],
-    # },
-    # "nb_cars_traveling": {
-    #     "title": "Test Episode Mean Nb Cars Traveling (\u2193 better)",
-    #     "ylabel": "IQM Episode Mean Nb Cars Traveling",
-    #     "json_path": [
-    #         "aggregate_metrics",
-    #         "detailed_info_metrics",
-    #         "nb_cars_traveling",
-    #         "mean",
-    #         "iqm",
-    #     ],
-    # },
+    "nb_cars_waiting": {
+        "title": "Test Episode Mean Nb Cars Waiting (\u2193 better)",
+        "ylabel": "IQM Episode Mean Nb Cars Waiting",
+        "json_path": [
+            "aggregate_metrics",
+            "detailed_info_metrics",
+            "nb_cars_waiting",
+            "mean",
+            "iqm",
+        ],
+    },
+    "nb_cars_traveling": {
+        "title": "Test Episode Mean Nb Cars Traveling (\u2193 better)",
+        "ylabel": "IQM Episode Mean Nb Cars Traveling",
+        "json_path": [
+            "aggregate_metrics",
+            "detailed_info_metrics",
+            "nb_cars_traveling",
+            "mean",
+            "iqm",
+        ],
+    },
 }
 
 

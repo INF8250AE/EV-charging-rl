@@ -3,50 +3,25 @@ import matplotlib.pyplot as plt
 import numpy as np
 import os
 from pathlib import Path
-from matplotlib.ticker import FuncFormatter
+from matplotlib.ticker import MaxNLocator
 
-METRIC_KEY = "train_ep_received_station_full_penalty_sum"
+METRIC_KEY = "train_gen_return"
 
 FOLDER_PATH = f"./results/{METRIC_KEY}/"
 OUTPUT_FOLDER_PATH = Path("./plots/")
-PLOT_TITLE = "Training Episode Station Full Penalty (\u2193 better)"
-Y_LABEL = "Mean Episode Penalty Sum"
-X_LABEL = "Training Steps"
+PLOT_TITLE = "Training Episode Return (\u2191 better)"
+Y_LABEL = "Mean Episode Return"
+X_LABEL = "Generations"
 
-
-SMOOTHING_WEIGHT = 0.9
-
-METHODS_TO_PLOT = ["a2c", "ddqn"]
-METHOD_COLORS = {"a2c": "#1f77b4", "ddqn": "#d62728", "ga": "#2ca02c", "random": "gray"}
-METHOD_DISPLAY_NAMES = {
-    "a2c": "A2C",
-    "ddqn": "DDQN",
-    "ga": "Evolutionary (GA)",
-    "random": "Random Baseline",
-}
-
-
-def smooth_data(scalars, weight):
-    last = scalars[0]
-    smoothed = list()
-    for point in scalars:
-        smoothed_val = last * weight + (1 - weight) * point
-        smoothed.append(smoothed_val)
-        last = smoothed_val
-    return np.array(smoothed)
-
-
-def format_func(value, tick_number):
-    return f"{int(value / 1000)}k"
+METHODS_TO_PLOT = ["ga"]
+METHOD_COLORS = {"ga": "#2ca02c"}
+METHOD_DISPLAY_NAMES = {"ga": "Evolutionary (GA)"}
 
 
 def load_and_plot():
     plt.figure(figsize=(10, 6))
 
     for method in METHODS_TO_PLOT:
-
-        # Assuming filename format: {method}_seed_{seed}_{METRIC_KEY}.json
-
         seeds_data_y = []
         seeds_data_x = []
 
@@ -66,7 +41,6 @@ def load_and_plot():
         ), f"Expected 5 seeds for {method}, found {len(seeds_data_y)}"
 
         min_len = min(len(y) for y in seeds_data_y)
-
         seeds_data_y_truncated = [y[:min_len] for y in seeds_data_y]
         seeds_data_x_truncated = seeds_data_x[0][:min_len]
 
@@ -76,19 +50,29 @@ def load_and_plot():
         mean_y = np.mean(y_matrix, axis=0)
         std_y = np.std(y_matrix, axis=0)
 
-        smoothed_mean = smooth_data(mean_y, SMOOTHING_WEIGHT)
-
         color = METHOD_COLORS.get(method, "black")
         label = METHOD_DISPLAY_NAMES.get(method, method.upper())
 
-        plt.plot(x_axis, smoothed_mean, color=color, linewidth=2, label=label)
+        for i, seed_y in enumerate(seeds_data_y_truncated):
+            plt.plot(
+                x_axis, seed_y, color=color, alpha=0.25, linewidth=1, linestyle="-"
+            )
+
+        plt.plot(
+            x_axis,
+            mean_y,
+            color=color,
+            linewidth=2.5,
+            label=f"{label}",
+            marker="o",
+        )
 
         plt.fill_between(
             x_axis,
-            smoothed_mean - std_y,
-            smoothed_mean + std_y,
+            mean_y - std_y,
+            mean_y + std_y,
             color=color,
-            alpha=0.15,
+            alpha=0.1,
             linewidth=0,
         )
 
@@ -97,7 +81,8 @@ def load_and_plot():
     plt.ylabel(Y_LABEL, fontsize=12)
     plt.grid(True, linestyle="--", alpha=0.6)
     plt.legend(loc="best")
-    plt.gca().xaxis.set_major_formatter(FuncFormatter(format_func))
+    plt.gca().xaxis.set_major_locator(MaxNLocator(integer=True))
+
     plt.tight_layout()
 
     OUTPUT_FOLDER_PATH.mkdir(parents=True, exist_ok=True)

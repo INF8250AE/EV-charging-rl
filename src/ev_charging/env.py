@@ -1,7 +1,5 @@
 import torch
 import torch.distributions as dist
-import torch.nn as nn
-import torch.optim as optim
 import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
@@ -76,6 +74,9 @@ class EvChargingStation:
         max_nb_cars_traveling: int,
         max_nb_cars_waiting: int,
         station_full_penalty: float,
+        cap_max_chargers_per_station: int,
+        cap_max_cars_waiting: int,
+        cap_max_cars_traveling: int,
     ):
         self.id = id
         self.charge_speed = charge_speed
@@ -95,6 +96,12 @@ class EvChargingStation:
         self.cars_traveling = []
         self.cars_charging = []
         self.cars_waiting = []
+        self.cap_max_chargers = cap_max_chargers_per_station
+        self.cap_max_waiting = cap_max_cars_waiting
+        self.cap_max_traveling = cap_max_cars_traveling
+        assert (
+            self.nb_chargers <= self.cap_max_chargers
+        ), f"Cannot use {self.nb_chargers} chargers, the cap is {self.cap_max_chargers}!"
 
     @property
     def free_chargers(self):
@@ -210,7 +217,7 @@ class EvChargingStation:
         )
 
         traveling_states_padded = torch.full(
-            (self.max_nb_cars_traveling, NB_STATE_PER_CAR),
+            (self.cap_max_traveling, NB_STATE_PER_CAR),
             fill_value=FILLER_VALUE,
             dtype=torch.float32,
             device=self.device,
@@ -220,7 +227,7 @@ class EvChargingStation:
             traveling_states_padded[idx] = car.get_state()
 
         charging_states_padded = torch.full(
-            (self.nb_chargers, NB_STATE_PER_CAR),
+            (self.cap_max_chargers, NB_STATE_PER_CAR),
             fill_value=FILLER_VALUE,
             dtype=torch.float32,
             device=self.device,
@@ -229,7 +236,7 @@ class EvChargingStation:
             charging_states_padded[idx] = car.get_state()
 
         waiting_states_padded = torch.full(
-            (self.max_nb_cars_waiting, NB_STATE_PER_CAR),
+            (self.cap_max_waiting, NB_STATE_PER_CAR),
             fill_value=FILLER_VALUE,
             dtype=torch.float32,
             device=self.device,
@@ -262,6 +269,7 @@ class EvChargingEnv(gym.Env):
         max_charge_speed_sharpness: int = 5,
         min_chargers_per_station: int = 1,
         max_chargers_per_station: int = 5,
+        cap_max_chargers_per_station: int = 10,
         min_travel_time_to_station: int = 2,
         max_travel_time_to_station: int = 15,
         min_mean_travel_time_to_station: int = 3,
@@ -269,7 +277,9 @@ class EvChargingEnv(gym.Env):
         min_std_travel_time_to_station: int = 0.5,
         max_std_travel_time_to_station: int = 2.0,
         max_nb_cars_traveling_to_station: int = 10,
-        max_nb_cars_waiting_at_station: int = 10,
+        cap_max_cars_traveling: int = 20,
+        max_nb_cars_waiting_at_station: int = 2,
+        cap_max_cars_waiting: int = 10,
         min_car_capacity: int = 50,
         max_car_capacity: int = 500,
         max_car_init_soc: float = 0.85,
@@ -286,6 +296,18 @@ class EvChargingEnv(gym.Env):
         super().__init__()
         self.generator = torch.Generator(device=device).manual_seed(seed)
         self._device = device
+        self.cap_chargers = cap_max_chargers_per_station
+        self.cap_traveling = cap_max_cars_traveling
+        self.cap_waiting = cap_max_cars_waiting
+        assert (
+            max_chargers_per_station <= self.cap_chargers
+        ), f"Config Error: Max sampling chargers ({max_chargers_per_station}) > Cap ({self.cap_chargers})"
+        assert (
+            max_nb_cars_traveling_to_station <= self.cap_traveling
+        ), f"Config Error: Max traveling ({max_nb_cars_traveling_to_station}) > Cap ({self.cap_traveling})"
+        assert (
+            max_nb_cars_waiting_at_station <= self.cap_waiting
+        ), f"Config Error: Max waiting ({max_nb_cars_waiting_at_station}) > Cap ({self.cap_waiting})"
         self.min_car_capacity = min_car_capacity
         self.max_car_capacity = max_car_capacity
         self.max_car_init_soc = max_car_init_soc
@@ -302,6 +324,7 @@ class EvChargingEnv(gym.Env):
         self.advance_until_next_request = advance_until_next_request
         self.nb_cars_charged_last_time_step = 0
         self.stations = []
+
         for station_id in range(nb_stations):
             mean_travel_time_distribution = dist.Uniform(
                 low=min_mean_travel_time_to_station,
@@ -313,6 +336,7 @@ class EvChargingEnv(gym.Env):
             )
             mean_travel_time = mean_travel_time_distribution.sample()
             std_travel_time = std_travel_time_distribution.sample()
+
             station = EvChargingStation(
                 id=station_id,
                 device=device,
@@ -339,6 +363,9 @@ class EvChargingEnv(gym.Env):
                     generator=self.generator,
                     device=device,
                 ).item(),
+                cap_max_chargers_per_station=self.cap_chargers,
+                cap_max_cars_traveling=self.cap_traveling,
+                cap_max_cars_waiting=self.cap_waiting,
                 travel_distribution=dist.Normal(
                     loc=mean_travel_time, scale=std_travel_time
                 ),
@@ -353,11 +380,16 @@ class EvChargingEnv(gym.Env):
         self.max_nb_cars_routed = sum(
             [station.get_max_nb_cars() for station in self.stations]
         )
-        padded_state_dim = (
-            +NB_STATE_PER_CAR
-            + self.max_nb_cars_routed * NB_STATE_PER_CAR
-            + nb_stations * NB_STATION_ONLY_STATE_PER_STATION
+
+        dim_per_station = (
+            NB_STATION_ONLY_STATE_PER_STATION
+            + (self.cap_traveling * NB_STATE_PER_CAR)
+            + (self.cap_chargers * NB_STATE_PER_CAR)
+            + (self.cap_waiting * NB_STATE_PER_CAR)
         )
+
+        padded_state_dim = NB_STATE_PER_CAR + (nb_stations * dim_per_station)
+
         self.observation_space = spaces.Dict(
             {
                 "state": spaces.Box(

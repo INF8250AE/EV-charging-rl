@@ -8,7 +8,7 @@ hydra:
 experiment:
   type: "train_ga"
 logging:
-  use_cometml: false
+  use_cometml: true
 training:
-  seed: 42
+  seed: 0
   n_logging_episodes: 30

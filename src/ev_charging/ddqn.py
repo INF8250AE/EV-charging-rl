@@ -214,3 +214,8 @@ class DDQNAgent:
         Copy weights from online model to target model.
         """
         self.target_model.load_state_dict(self.model.state_dict())
+
+    def on_env_transition(self, state, action, reward, next_state, done, train_batch_size, env_step) -> dict:
+        self.add_to_replay_buffer(state, action, reward, next_state, done)    
+        return self.update(batch_size=train_batch_size, env_step=env_step)
+    
